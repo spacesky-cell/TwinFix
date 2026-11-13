@@ -11,7 +11,7 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "fastapi==0.162.2",
+    "fastapi==0.162.4",
     "uvicorn[standard]==0.54.0",
     "pydantic==2.14.3",
     "pydantic-settings==2.16.2",
@@ -27,7 +27,7 @@ dependencies = [
     "sse-starlette==3.7.0",
     "pyjwt==2.15.1",
     "cryptography==50.0.2",
-    "markdown-it-py==4.2.0",
+    "markdown-it-py==4.3.0",
     "docker==7.2.0",
     "pyyaml==6.0.3",
     "tree-sitter==0.26.1",
