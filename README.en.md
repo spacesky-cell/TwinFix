@@ -29,7 +29,7 @@ The agent never touches production, and never grades its own homework — a bug 
 
 </div>
 
-![TwinFix console demo: create an incident → diagnose / reproduce / fix / verify → human approves the merge](docs/images/demo.gif)
+![TwinFix console demo: incident list → verification and approval → merge → observation window](docs/images/demo.gif)
 
 ## Overview
 
