@@ -29,7 +29,7 @@ Agent 不接触生产环境，也不自证通过：故障必须先用失败测�
 
 </div>
 
-![TwinFix 控制台演示：创建事故 → 诊断 / 复现 / 修复 / 验证 → 人工确认合并](docs/images/demo.gif)
+![TwinFix 控制台演示：事故列表 → 验证结果与审批 → 确认合并 → 观察期](docs/images/demo.gif)
 
 ## 简介
 
