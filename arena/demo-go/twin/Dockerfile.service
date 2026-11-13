@@ -1,0 +1,15 @@
+# 孪生环境服务镜像：从修复分支的源码构建 demo-go 的订单服务。
+# 多阶段构建：golang 镜像内编译（无第三方依赖，不需要联网），scratch 里只放静态二进制。
+FROM golang:1.25-bookworm AS build
+
+ENV GOTOOLCHAIN=local \
+    GOFLAGS=-mod=mod
+WORKDIR /src
+COPY src/ /src/
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/orders ./cmd/orders
+
+FROM scratch
+COPY --from=build /out/orders /app/orders
+USER 10001:10001
+EXPOSE 8080
+ENTRYPOINT ["/app/orders"]

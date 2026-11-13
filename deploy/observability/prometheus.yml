@@ -1,0 +1,29 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  # TwinFix 自身的运行指标（/api/metrics）。本地演示默认 auth_disabled=true，无需 token；
+  # 开启鉴权后配置 TWINFIX_METRICS_TOKEN，并在此加 authorization.credentials_file 或 bearer_token。
+  - job_name: twinfix-api
+    metrics_path: /api/metrics
+    static_configs:
+      - targets: ["host.docker.internal:8000"]
+
+  # 孪生环境里的 Spring Boot 服务：容器带 dev.twinfix.metrics=<端口> 标签即被抓取
+  - job_name: twin-services
+    metrics_path: /actuator/prometheus
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 15s
+    relabel_configs:
+      - source_labels: [__meta_docker_container_label_dev_twinfix_metrics]
+        regex: .+
+        action: keep
+      - source_labels: [__meta_docker_network_ip, __meta_docker_container_label_dev_twinfix_metrics]
+        regex: (.+);(.+)
+        replacement: $1:$2
+        target_label: __address__
+      - source_labels: [__meta_docker_container_label_com_docker_compose_service]
+        target_label: service
+      - source_labels: [__meta_docker_container_label_com_docker_compose_project]
+        target_label: twin

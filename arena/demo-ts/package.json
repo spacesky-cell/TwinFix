@@ -1,0 +1,11 @@
+{
+  "name": "demo-ts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Minimal TypeScript order service used by the TwinFix arena",
+  "scripts": {
+    "build": "node --check orders/app.ts",
+    "test": "node --test"
+  }
+}

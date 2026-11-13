@@ -1,0 +1,112 @@
+diff --git a/order/src/main/java/com/acme/order/infra/JdbcOrderRepository.java b/order/src/main/java/com/acme/order/infra/JdbcOrderRepository.java
+index 302d084..62c6e6f 100644
+--- a/order/src/main/java/com/acme/order/infra/JdbcOrderRepository.java
++++ b/order/src/main/java/com/acme/order/infra/JdbcOrderRepository.java
+@@ -3,6 +3,7 @@ package com.acme.order.infra;
+ import com.acme.order.domain.Order;
+ import com.acme.order.domain.OrderLine;
+ import com.acme.order.domain.PriceBreakdown;
++import java.math.BigDecimal;
+ import java.sql.Timestamp;
+ import java.util.List;
+ import java.util.Optional;
+@@ -57,6 +58,14 @@ public class JdbcOrderRepository implements OrderRepository {
+                 .update();
+     }
+ 
++    @Override
++    public void recordPayment(long orderId, BigDecimal amount) {
++        jdbc.sql("INSERT INTO payment (order_id, amount, paid_at) VALUES (:id, :amount, now())")
++                .param("id", orderId)
++                .param("amount", amount)
++                .update();
++    }
++
+     @Override
+     public Optional<Order> findById(long id) {
+         List<OrderLine> lines = jdbc.sql("SELECT sku, quantity, unit_price FROM order_line WHERE order_id = :id ORDER BY id")
+diff --git a/order/src/main/java/com/acme/order/infra/OrderRepository.java b/order/src/main/java/com/acme/order/infra/OrderRepository.java
+index 8d48a29..710593b 100644
+--- a/order/src/main/java/com/acme/order/infra/OrderRepository.java
++++ b/order/src/main/java/com/acme/order/infra/OrderRepository.java
+@@ -1,6 +1,7 @@
+ package com.acme.order.infra;
+ 
+ import com.acme.order.domain.Order;
++import java.math.BigDecimal;
+ import java.util.Optional;
+ 
+ public interface OrderRepository {
+@@ -10,4 +11,7 @@ public interface OrderRepository {
+     Optional<Order> findById(long id);
+ 
+     void saveStatus(long id, String status);
++
++    /** 记一笔支付流水（对账依据）。 */
++    void recordPayment(long orderId, BigDecimal amount);
+ }
+diff --git a/order/src/main/java/com/acme/order/service/OrderService.java b/order/src/main/java/com/acme/order/service/OrderService.java
+index ef92aba..fa3b52b 100644
+--- a/order/src/main/java/com/acme/order/service/OrderService.java
++++ b/order/src/main/java/com/acme/order/service/OrderService.java
+@@ -76,8 +76,14 @@ public class OrderService {
+ 
+     @Transactional
+     public Order markPaid(long id) {
+-        get(id); // 存在性校验，缺失抛 ORDER_NOT_FOUND 并回滚
++        Order order = get(id); // 存在性校验，缺失抛 ORDER_NOT_FOUND 并回滚
+         orders.saveStatus(id, "PAID");
++        try {
++            orders.recordPayment(id, order.price().total());
++        } catch (RuntimeException e) {
++            // 流水写失败不影响支付结果，夜间对账任务会补齐
++            log.warn("payment ledger write failed for order {}: {}", id, e.getMessage());
++        }
+         return get(id);
+     }
+ 
+diff --git a/order/src/main/resources/schema.sql b/order/src/main/resources/schema.sql
+index 0377290..78763e2 100644
+--- a/order/src/main/resources/schema.sql
++++ b/order/src/main/resources/schema.sql
+@@ -30,3 +30,10 @@ CREATE TABLE IF NOT EXISTS order_line (
+     quantity   INT NOT NULL,
+     unit_price NUMERIC(12, 2) NOT NULL
+ );
++
++CREATE TABLE IF NOT EXISTS payment (
++    id       BIGSERIAL PRIMARY KEY,
++    order_id BIGINT NOT NULL UNIQUE REFERENCES orders (id),
++    amount   NUMERIC(12, 2) NOT NULL,
++    paid_at  TIMESTAMPTZ NOT NULL
++);
+diff --git a/order/src/test/java/com/acme/order/service/OrderServicePayTest.java b/order/src/test/java/com/acme/order/service/OrderServicePayTest.java
+index 91c5ffe..8a4dd0d 100644
+--- a/order/src/test/java/com/acme/order/service/OrderServicePayTest.java
++++ b/order/src/test/java/com/acme/order/service/OrderServicePayTest.java
+@@ -49,6 +49,10 @@ class OrderServicePayTest {
+                 rows.put(id, new Order(o.id(), o.customer(), o.lines(), o.price(), status, o.createdAt()));
+             }
+         }
++
++        @Override
++        public void recordPayment(long orderId, BigDecimal amount) {
++        }
+     }
+ 
+     private final MemoryOrders orders = new MemoryOrders();
+diff --git a/order/src/test/java/com/acme/order/service/OrderServiceTest.java b/order/src/test/java/com/acme/order/service/OrderServiceTest.java
+index 842e412..f43e2cf 100644
+--- a/order/src/test/java/com/acme/order/service/OrderServiceTest.java
++++ b/order/src/test/java/com/acme/order/service/OrderServiceTest.java
+@@ -59,6 +59,10 @@ class OrderServiceTest {
+                 rows.put(id, new Order(o.id(), o.customer(), o.lines(), o.price(), status, o.createdAt()));
+             }
+         }
++
++        @Override
++        public void recordPayment(long orderId, BigDecimal amount) {
++        }
+     }
+ 
+     private final Map<String, BigDecimal> prices = Map.of("SKU-1", new BigDecimal("299.00"), "SKU-2", new BigDecimal("89.90"));

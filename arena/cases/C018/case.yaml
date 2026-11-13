@@ -1,0 +1,31 @@
+id: C018
+title: 盘点对账用 != 比较 Integer，库存超过 127 全部误报不一致
+category: 装箱比较
+description: >
+  inventory 新增 POST /api/stock/reconcile 盘点对账。作者用 Map<String, Integer> 装实盘与系统库存，
+  比较时写了 actual != e.getValue()。Integer 是对象，!= 比较引用，只有 -128..127 的值命中
+  Integer 缓存时才"碰巧"相等。单测里的库存都是个位数，CI 是绿的；
+  上线后凡是库存超过 127 的 SKU 每次盘点都被报不一致，仓库同事反复复盘也对不上。
+inject:
+  type: patch
+  file: inject.patch
+  branch: dev
+  message: "feat(inventory): stock reconcile endpoint for warehouse counts"
+  services: [inventory]
+signal:
+  title: "盘点对账报不一致，但实盘与系统库存完全相同"
+  service: inventory
+  env: test
+  severity: S3
+  message: |
+    仓库每晚调用 POST /api/stock/reconcile 上报实盘，已连续 3 天报警：
+      WARN  c.a.i.web.StockController - stock reconcile mismatched 2 of 3 skus: [SKU-1, SKU-2]
+    请求体：{"SKU-1": 100, "SKU-2": 500, "SKU-3": 50}
+    响应：{"checked":3,"mismatched":{"SKU-1":100,"SKU-2":500}}
+    返回的系统库存与上报的实盘数值一模一样；SKU-3（库存 50）从来不报。
+expect:
+  outcome: fixed
+  root_cause_locations: ["inventory/src/main/java/com/acme/inventory/service/StockService.java#reconcile"]
+  root_cause_keywords: ["Integer", "==", "!=", "equals", "缓存", "装箱", "引用"]
+# 隐藏测试：库存 >127 的相等值不能误报；真实差异与系统中不存在的 SKU 仍要报出（防止"永远返回空"式修复）。
+hidden_tests: [hidden/StockReconcileHiddenTest.java]

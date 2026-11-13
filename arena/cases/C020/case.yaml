@@ -1,0 +1,37 @@
+id: C020
+title: 销售报表手动取连接不归还，连接池被借空
+category: 连接池
+description: >
+  新增的按 SKU 销售报表为了"流式读大结果集"绕开 JdbcClient，直接 DataSource.getConnection()
+  写原生 JDBC。结果集和语句关了，连接却没 close；查询超时抛 SQLException 时更是全部泄漏。
+  每打开一次报表页就从 Hikari 池里借走一条连接不还，十来次之后下单接口也拿不到连接。
+  单测用代理伪造 DataSource 只校验汇总结果，CI 是绿的。
+inject:
+  type: patch
+  file: inject.patch
+  branch: dev
+  message: "feat(order): sales-by-sku report with streaming JDBC cursor"
+  services: [order]
+signal:
+  title: "order 服务 HikariPool 耗尽，POST /api/orders 大面积 500"
+  service: order
+  env: test
+  severity: S1
+  stacktrace: |
+    org.springframework.jdbc.CannotGetJdbcConnectionException: Failed to obtain JDBC Connection
+        at org.springframework.jdbc.datasource.DataSourceUtils.getConnection(DataSourceUtils.java:84)
+        at com.acme.order.infra.JdbcOrderRepository.save(JdbcOrderRepository.java:25)
+        at com.acme.order.service.OrderService.create(OrderService.java:62)
+    Caused by: java.sql.SQLTransientConnectionException: HikariPool-1 - Connection is not available, request timed out after 30000ms (total=10, active=10, idle=0, waiting=37)
+  message: |
+    运营在 10:05 起反复刷新 GET /api/reports/sales-by-sku（月度窗口）。
+    Prometheus：hikaricp_connections_active{pool="HikariPool-1"} 从 1 爬升到 10 后不再下降，
+    hikaricp_connections_pending 持续 30+。重启 order 后恢复，约 15 分钟后再次出现。
+    PostgreSQL pg_stat_activity 中有 10 个 state='idle in transaction' 的会话，
+    最后语句均为 SELECT l.sku, SUM(l.unit_price * l.quantity) ... GROUP BY l.sku。
+expect:
+  outcome: fixed
+  root_cause_locations: ["order/src/main/java/com/acme/order/report/JdbcSalesReport.java#salesBySku"]
+  root_cause_keywords: ["连接", "close", "泄漏", "try-with-resources", "归还"]
+# 隐藏测试：伪造连接池统计借出未还的连接，成功与 SQLException 两条路径之后都必须为 0，且汇总结果正确。
+hidden_tests: [hidden/JdbcSalesReportConnectionLeakHiddenTest.java]

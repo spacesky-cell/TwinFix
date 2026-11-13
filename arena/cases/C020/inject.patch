@@ -1,0 +1,199 @@
+diff --git a/order/src/main/java/com/acme/order/config/OrderConfig.java b/order/src/main/java/com/acme/order/config/OrderConfig.java
+index 0803231..29ae3ba 100644
+--- a/order/src/main/java/com/acme/order/config/OrderConfig.java
++++ b/order/src/main/java/com/acme/order/config/OrderConfig.java
+@@ -9,9 +9,12 @@ import com.acme.order.infra.JdbcOrderRepository;
+ import com.acme.order.infra.JdbcProductRepository;
+ import com.acme.order.infra.OrderRepository;
+ import com.acme.order.infra.ProductRepository;
++import com.acme.order.report.JdbcSalesReport;
++import com.acme.order.report.SalesReport;
+ import com.acme.order.service.OrderService;
+ import java.time.Clock;
+ import java.time.Duration;
++import javax.sql.DataSource;
+ import org.springframework.beans.factory.annotation.Value;
+ import org.springframework.context.annotation.Bean;
+ import org.springframework.context.annotation.Lazy;
+@@ -39,6 +42,11 @@ public class OrderConfig {
+         return new JdbcOrderRepository(jdbc, tx);
+     }
+ 
++    @Bean
++    SalesReport salesReport(DataSource dataSource) {
++        return new JdbcSalesReport(dataSource);
++    }
++
+     @Bean
+     InventoryGateway inventoryGateway(@Value("${shop.inventory-url}") String url) {
+         var factory = new SimpleClientHttpRequestFactory();
+diff --git a/order/src/main/java/com/acme/order/report/JdbcSalesReport.java b/order/src/main/java/com/acme/order/report/JdbcSalesReport.java
+new file mode 100644
+index 0000000..624d9a8
+--- /dev/null
++++ b/order/src/main/java/com/acme/order/report/JdbcSalesReport.java
+@@ -0,0 +1,58 @@
++package com.acme.order.report;
++
++import java.math.BigDecimal;
++import java.sql.Connection;
++import java.sql.PreparedStatement;
++import java.sql.ResultSet;
++import java.sql.SQLException;
++import java.sql.Timestamp;
++import java.time.Instant;
++import java.util.LinkedHashMap;
++import java.util.Map;
++import javax.sql.DataSource;
++
++/**
++ * 运营报表：按 SKU 汇总销售额。
++ *
++ * <p>月度窗口的明细行很多，这里直接用原生 JDBC 开游标流式读取（PostgreSQL 需要关闭 autoCommit 才会按
++ * fetchSize 分批拉取），避免 JdbcClient 一次性把结果集读进内存。
++ */
++public class JdbcSalesReport implements SalesReport {
++
++    private static final String SQL = """
++            SELECT l.sku, SUM(l.unit_price * l.quantity) AS amount
++            FROM order_line l JOIN orders o ON o.id = l.order_id
++            WHERE o.created_at >= ? AND o.created_at < ?
++            GROUP BY l.sku
++            ORDER BY amount DESC
++            """;
++
++    private final DataSource dataSource;
++
++    public JdbcSalesReport(DataSource dataSource) {
++        this.dataSource = dataSource;
++    }
++
++    @Override
++    public Map<String, BigDecimal> salesBySku(Instant from, Instant to) {
++        try {
++            Connection conn = dataSource.getConnection();
++            conn.setAutoCommit(false);
++            PreparedStatement ps = conn.prepareStatement(SQL);
++            ps.setFetchSize(500);
++            ps.setTimestamp(1, Timestamp.from(from));
++            ps.setTimestamp(2, Timestamp.from(to));
++            ResultSet rs = ps.executeQuery();
++            Map<String, BigDecimal> out = new LinkedHashMap<>();
++            while (rs.next()) {
++                out.put(rs.getString("sku"), rs.getBigDecimal("amount"));
++            }
++            rs.close();
++            ps.close();
++            conn.commit();
++            return out;
++        } catch (SQLException e) {
++            throw new IllegalStateException("sales report query failed", e);
++        }
++    }
++}
+diff --git a/order/src/main/java/com/acme/order/report/SalesReport.java b/order/src/main/java/com/acme/order/report/SalesReport.java
+new file mode 100644
+index 0000000..d033cb4
+--- /dev/null
++++ b/order/src/main/java/com/acme/order/report/SalesReport.java
+@@ -0,0 +1,11 @@
++package com.acme.order.report;
++
++import java.math.BigDecimal;
++import java.time.Instant;
++import java.util.Map;
++
++public interface SalesReport {
++
++    /** 时间窗内各 SKU 的销售额（按销售额降序）。 */
++    Map<String, BigDecimal> salesBySku(Instant from, Instant to);
++}
+diff --git a/order/src/main/java/com/acme/order/report/SalesReportController.java b/order/src/main/java/com/acme/order/report/SalesReportController.java
+new file mode 100644
+index 0000000..b1dc6e2
+--- /dev/null
++++ b/order/src/main/java/com/acme/order/report/SalesReportController.java
+@@ -0,0 +1,25 @@
++package com.acme.order.report;
++
++import java.math.BigDecimal;
++import java.time.Instant;
++import java.util.Map;
++import org.springframework.web.bind.annotation.GetMapping;
++import org.springframework.web.bind.annotation.RequestMapping;
++import org.springframework.web.bind.annotation.RequestParam;
++import org.springframework.web.bind.annotation.RestController;
++
++@RestController
++@RequestMapping("/api/reports")
++public class SalesReportController {
++
++    private final SalesReport report;
++
++    public SalesReportController(SalesReport report) {
++        this.report = report;
++    }
++
++    @GetMapping("/sales-by-sku")
++    public Map<String, BigDecimal> salesBySku(@RequestParam Instant from, @RequestParam Instant to) {
++        return report.salesBySku(from, to);
++    }
++}
+diff --git a/order/src/test/java/com/acme/order/report/JdbcSalesReportTest.java b/order/src/test/java/com/acme/order/report/JdbcSalesReportTest.java
+new file mode 100644
+index 0000000..d978a60
+--- /dev/null
++++ b/order/src/test/java/com/acme/order/report/JdbcSalesReportTest.java
+@@ -0,0 +1,52 @@
++package com.acme.order.report;
++
++import static org.assertj.core.api.Assertions.assertThat;
++
++import java.lang.reflect.Proxy;
++import java.math.BigDecimal;
++import java.sql.Connection;
++import java.sql.PreparedStatement;
++import java.sql.ResultSet;
++import java.time.Instant;
++import java.util.Iterator;
++import java.util.List;
++import java.util.Map;
++import javax.sql.DataSource;
++import org.junit.jupiter.api.Test;
++
++class JdbcSalesReportTest {
++
++    @SuppressWarnings("unchecked")
++    private static <T> T proxy(Class<T> type, java.lang.reflect.InvocationHandler h) {
++        return (T) Proxy.newProxyInstance(type.getClassLoader(), new Class<?>[] {type}, h);
++    }
++
++    private static DataSource rows(List<Map.Entry<String, BigDecimal>> data) {
++        Iterator<Map.Entry<String, BigDecimal>> it = data.iterator();
++        Map.Entry<String, BigDecimal>[] cur = new Map.Entry[1];
++        ResultSet rs = proxy(ResultSet.class, (p, m, a) -> switch (m.getName()) {
++            case "next" -> {
++                boolean has = it.hasNext();
++                cur[0] = has ? it.next() : null;
++                yield has;
++            }
++            case "getString" -> cur[0].getKey();
++            case "getBigDecimal" -> cur[0].getValue();
++            default -> null;
++        });
++        PreparedStatement ps = proxy(PreparedStatement.class, (p, m, a) -> m.getName().equals("executeQuery") ? rs : null);
++        Connection conn = proxy(Connection.class, (p, m, a) -> m.getName().equals("prepareStatement") ? ps : null);
++        return proxy(DataSource.class, (p, m, a) -> m.getName().equals("getConnection") ? conn : null);
++    }
++
++    @Test
++    void aggregatesInQueryOrder() {
++        var report = new JdbcSalesReport(rows(List.of(
++                Map.entry("SKU-1", new BigDecimal("598.00")),
++                Map.entry("SKU-2", new BigDecimal("89.90")))));
++        var result = report.salesBySku(Instant.parse("2026-10-01T00:00:00Z"), Instant.parse("2026-11-01T00:00:00Z"));
++        assertThat(result).containsExactly(
++                Map.entry("SKU-1", new BigDecimal("598.00")),
++                Map.entry("SKU-2", new BigDecimal("89.90")));
++    }
++}

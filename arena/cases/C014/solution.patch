@@ -1,0 +1,18 @@
+diff --git a/inventory/src/main/java/com/acme/inventory/messaging/OrderEventConsumer.java b/inventory/src/main/java/com/acme/inventory/messaging/OrderEventConsumer.java
+index 5f7cd18..81547fb 100644
+--- a/inventory/src/main/java/com/acme/inventory/messaging/OrderEventConsumer.java
++++ b/inventory/src/main/java/com/acme/inventory/messaging/OrderEventConsumer.java
+@@ -21,8 +21,12 @@ public class OrderEventConsumer {
+     }
+ 
+     public void onOrderCreated(OrderCreatedEvent event) {
++        // 至少一次投递 → 消费必须幂等：先按 eventId 去重，重投的同一事件直接确认、不再扣库存
++        if (!processed.record(event.eventId())) {
++            log.info("duplicate event {} for order {}, skipped", event.eventId(), event.orderId());
++            return;
++        }
+         stock.reserve(event.sku(), event.quantity());
+-        processed.record(event.eventId());
+         log.info("reserved {} x{} for order {} (event {})", event.sku(), event.quantity(), event.orderId(), event.eventId());
+     }
+ }

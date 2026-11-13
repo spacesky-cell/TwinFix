@@ -1,0 +1,30 @@
+id: C006
+title: 日销售额按 UTC 切日，凌晨订单记到前一天
+category: 时间
+description: >
+  新上线的日销售额统计 DailySales 用 UTC 取订单日期，门店在北京时间（+08）：
+  每天 00:00–08:00 下的单被算进前一天，财务对账时两天的金额都对不上。
+  配置里明明有 shop.zone，代码却没用；单测只覆盖了白天的订单，CI 是绿的。
+inject:
+  type: patch
+  file: inject.patch
+  branch: dev
+  message: "feat(order): daily sales totals for finance reconciliation"
+  services: [order]
+signal:
+  title: "对账差异：2026-03-11 日销售额比支付流水少 20.00，03-10 多 20.00"
+  service: order
+  env: test
+  severity: S3
+  message: |
+    财务对账任务报告日销售额与支付渠道流水不一致：
+      2026-03-10 统计 30.00，渠道 10.00（+20.00）
+      2026-03-11 统计 5.00，渠道 25.00（-20.00）
+    差额对应订单 created_at=2026-03-10T16:00:00Z（北京时间 03-11 00:00）。
+    统计口径：com.acme.order.report.DailySales#totalsByDay，营业时区 Asia/Shanghai。
+expect:
+  outcome: fixed
+  root_cause_locations: ["order/src/main/java/com/acme/order/report/DailySales.java#businessDay"]
+  root_cause_keywords: ["时区", "UTC", "zone", "shopZone"]
+# 隐藏测试：凌晨订单归属本地营业日、零点切分正确，且时区来自配置（换成纽约也对，防止硬编码 +8）。
+hidden_tests: [hidden/DailySalesTimezoneHiddenTest.java]

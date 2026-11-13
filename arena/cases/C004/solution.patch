@@ -1,0 +1,24 @@
+diff --git a/inventory/src/main/java/com/acme/inventory/infra/JdbcStockRepository.java b/inventory/src/main/java/com/acme/inventory/infra/JdbcStockRepository.java
+index e39e799..ec223d1 100644
+--- a/inventory/src/main/java/com/acme/inventory/infra/JdbcStockRepository.java
++++ b/inventory/src/main/java/com/acme/inventory/infra/JdbcStockRepository.java
+@@ -23,17 +23,10 @@ public class JdbcStockRepository implements StockRepository {
+ 
+     @Override
+     public boolean tryReserve(String sku, int quantity) {
+-        var left = jdbc.sql("SELECT available FROM stock WHERE sku = :sku")
+-                .param("sku", sku)
+-                .query(Integer.class)
+-                .optional();
+-        if (left.isEmpty() || left.get() < quantity) {
+-            return false;
+-        }
+-        jdbc.sql("UPDATE stock SET available = available - :q WHERE sku = :sku")
++        int updated = jdbc.sql("UPDATE stock SET available = available - :q WHERE sku = :sku AND available >= :q")
+                 .param("q", quantity)
+                 .param("sku", sku)
+                 .update();
+-        return true;
++        return updated == 1;
+     }
+ }

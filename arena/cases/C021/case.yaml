@@ -1,0 +1,36 @@
+id: C021
+title: 调用支付渠道没设超时，渠道卡住拖死 order 全部线程
+category: 超时
+description: >
+  收银台轮询支付结果的新接口 GET /api/payments/{id} 透传第三方支付渠道。
+  HttpPaymentGateway.create 用默认 RestClient，没有连接/读超时（同项目的 HttpInventoryGateway 是有的）。
+  渠道侧某次发布后接口挂起不返回，order 的 Tomcat 线程一个个被卡死，连与支付无关的下单、查单也全部超时。
+  单测只打了一个正常返回的本地桩，CI 是绿的。
+inject:
+  type: patch
+  file: inject.patch
+  branch: dev
+  message: "feat(order): payment status polling endpoint for checkout"
+  services: [order]
+signal:
+  title: "order 服务全部接口超时，Tomcat 线程池打满（busy=200/200）"
+  service: order
+  env: test
+  severity: S1
+  message: |
+    14:20 起 order 所有接口 P99 > 60s，网关大量 504；GET /actuator/health 也超时。
+    Prometheus：tomcat_threads_busy_threads{app="order"} = 200（max 200），持续不降。
+    14:31 jstack 抽样，200 个 http-nio-8081-exec-* 线程中 196 个处于 RUNNABLE：
+      at java.net.SocketInputStream.socketRead0(Native Method)
+      at sun.net.www.http.HttpClient.parseHTTP(HttpClient.java:...)
+      at org.springframework.http.client.SimpleClientHttpResponse.getStatusCode(...)
+      at org.springframework.web.client.DefaultRestClient$DefaultResponseSpec.body(...)
+      at com.acme.order.infra.HttpPaymentGateway.query(HttpPaymentGateway.java:21)
+      at com.acme.order.web.PaymentController.status(PaymentController.java:22)
+    同时段支付渠道状态页公告：查询接口异常，部分请求无响应。
+expect:
+  outcome: fixed
+  root_cause_locations: ["order/src/main/java/com/acme/order/infra/HttpPaymentGateway.java#create"]
+  root_cause_keywords: ["超时", "timeout", "readTimeout", "线程", "阻塞"]
+# 隐藏测试：本地桩挂起 30s，query 必须在 10s 内放弃（抛异常或降级，但不能报 SUCCESS）；正常渠道仍透传结果。
+hidden_tests: [hidden/HttpPaymentGatewayTimeoutHiddenTest.java]

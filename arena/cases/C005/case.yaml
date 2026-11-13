@@ -1,0 +1,39 @@
+id: C005
+title: '@Transactional 自调用失效，支付回调绕过事务'
+category: 事务
+description: >
+  一次"代码简化"把 confirmPaid 里的 self.markPaid(id) 改成了直接调用 markPaid(id)。
+  markPaid 上的 @Transactional 注解仍在，但调用没有经过 Spring 代理，事务根本不会开启：
+  存在性校验、状态更新之间没有任何隔离与回滚保障，与其他写操作混在一起时会留下中间态。
+  注解还在、单测还能过（测试里 self=null 时本就退化为直接调用），CI 是绿的。
+inject:
+  type: patch
+  file: inject.patch
+  branch: dev
+  message: "refactor(order): drop unnecessary self-injection in confirmPaid"
+  services: [order]
+trigger:
+  requests:
+    - service: order
+      method: POST
+      path: /api/orders
+      body: { customer: "u-2001", lines: [{ sku: "SKU-1", quantity: 1 }] }
+    - service: order
+      method: POST
+      path: /api/orders/1/pay
+signal:
+  title: "audit: markPaid executed without an active transaction (self-invocation)"
+  service: order
+  env: test
+  severity: S3
+  stacktrace: |
+    WARN  TransactionSynchronizationManager - no transaction active for markPaid
+        at com.acme.order.service.OrderService.markPaid(OrderService.java:70)
+        at com.acme.order.service.OrderService.confirmPaid(OrderService.java:65)
+        at com.acme.order.web.OrderController.pay(OrderController.java:38)
+expect:
+  outcome: fixed
+  root_cause_locations: ["order/src/main/java/com/acme/order/service/OrderService.java#confirmPaid"]
+  root_cause_keywords: ["self", "代理", "自调用", "transaction"]
+# 隐藏测试：事务在 confirmPaid 路径上真的被激活（验证经过代理），并保留 markPaid 的事务语义。
+hidden_tests: [hidden/OrderServiceTransactionalHiddenTest.java]

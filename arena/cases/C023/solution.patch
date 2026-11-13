@@ -1,0 +1,66 @@
+diff --git a/order/src/main/java/com/acme/order/notify/OrderNotifier.java b/order/src/main/java/com/acme/order/notify/OrderNotifier.java
+index e67502f..b94dcb2 100644
+--- a/order/src/main/java/com/acme/order/notify/OrderNotifier.java
++++ b/order/src/main/java/com/acme/order/notify/OrderNotifier.java
+@@ -1,8 +1,7 @@
+ package com.acme.order.notify;
+ 
+ import com.acme.order.domain.Order;
+-import java.util.concurrent.ExecutorService;
+-import java.util.concurrent.Executors;
++import java.util.concurrent.ArrayBlockingQueue;
+ import java.util.concurrent.ThreadPoolExecutor;
+ import java.util.concurrent.TimeUnit;
+ import java.util.concurrent.atomic.AtomicInteger;
+@@ -16,17 +15,31 @@ public class OrderNotifier implements AutoCloseable {
+ 
+     private static final Logger log = LoggerFactory.getLogger(OrderNotifier.class);
+ 
++    /** 积压上限：通道挂起时最多缓存这么多条，超出直接丢弃并计数（通知是尽力而为，不能拖垮下单）。 */
++    static final int MAX_BACKLOG = 500;
++
+     private final NotificationSender sender;
+-    private final ExecutorService pool;
++    private final ThreadPoolExecutor pool;
++    private final AtomicInteger dropped = new AtomicInteger();
+ 
+     public OrderNotifier(NotificationSender sender, int threads) {
+         this.sender = sender;
+         AtomicInteger seq = new AtomicInteger();
+-        this.pool = Executors.newFixedThreadPool(threads, r -> {
+-            Thread t = new Thread(r, "order-notify-" + seq.incrementAndGet());
+-            t.setDaemon(true);
+-            return t;
+-        });
++        // 有界队列：Executors.newFixedThreadPool 的 LinkedBlockingQueue 无界，通道慢时任务无限堆积直到 OOM
++        this.pool = new ThreadPoolExecutor(threads, threads, 0L, TimeUnit.MILLISECONDS,
++                new ArrayBlockingQueue<>(MAX_BACKLOG),
++                r -> {
++                    Thread t = new Thread(r, "order-notify-" + seq.incrementAndGet());
++                    t.setDaemon(true);
++                    return t;
++                },
++                (task, executor) -> {
++                    // 不用 CallerRuns：通道挂起时会把下单线程一起拖住
++                    int n = dropped.incrementAndGet();
++                    if (n % 100 == 1) {
++                        log.warn("notify backlog full ({}), dropped {} notifications so far", MAX_BACKLOG, n);
++                    }
++                });
+     }
+ 
+     public void orderCreated(Order order) {
+@@ -41,7 +54,12 @@ public class OrderNotifier implements AutoCloseable {
+ 
+     /** 暴露给监控（Micrometer ExecutorServiceMetrics）：活跃线程、排队数。 */
+     public ThreadPoolExecutor executor() {
+-        return (ThreadPoolExecutor) pool;
++        return pool;
++    }
++
++    /** 因积压已满被丢弃的通知数。 */
++    public int dropped() {
++        return dropped.get();
+     }
+ 
+     @Override

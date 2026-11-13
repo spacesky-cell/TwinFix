@@ -1,0 +1,13 @@
+diff --git a/order/src/main/java/com/acme/order/service/OrderService.java b/order/src/main/java/com/acme/order/service/OrderService.java
+index 9345c22..ef92aba 100644
+--- a/order/src/main/java/com/acme/order/service/OrderService.java
++++ b/order/src/main/java/com/acme/order/service/OrderService.java
+@@ -71,7 +71,7 @@ public class OrderService {
+ 
+     /** 支付回调：置为 PAID。经 self 调用保证事务注解在代理上生效。 */
+     public Order confirmPaid(long id) {
+-        return markPaid(id);
++        return self.markPaid(id);
+     }
+ 
+     @Transactional

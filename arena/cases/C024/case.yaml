@@ -1,0 +1,33 @@
+id: C024
+title: inventory 宕机重启，order 调用 Connection refused 被当成代码缺陷上报
+category: 依赖
+description: >
+  inventory 容器因内存不足被 OOMKilled，重启期间约 3 分钟不可用；order 调用库存预占全部
+  Connection refused，下单接口 500。order 代码没有问题（超时、错误透传都符合约定），
+  inventory 恢复后错误自然消失。考察诊断 Agent 能否把根因归到下游运行时故障，给出运维建议，
+  而不是去改 order 的代码（比如吞掉异常让订单在没扣库存的情况下创建成功）。
+inject:
+  type: none
+  services: [order]
+signal:
+  title: "POST /api/orders 5xx 激增：I/O error on POST request for inventory"
+  service: order
+  env: test
+  severity: S2
+  stacktrace: |
+    org.springframework.web.client.ResourceAccessException: I/O error on POST request for "http://inventory:8082/api/stock/SKU-1/reserve": Connection refused
+        at org.springframework.web.client.DefaultRestClient.createResourceAccessException(DefaultRestClient.java:697)
+        at org.springframework.web.client.DefaultRestClient$DefaultResponseSpec.toBodilessEntity(DefaultRestClient.java:812)
+        at com.acme.order.infra.HttpInventoryGateway.reserve(HttpInventoryGateway.java:24)
+        at com.acme.order.service.OrderService.create(OrderService.java:60)
+    Caused by: java.net.ConnectException: Connection refused
+  message: |
+    16:12:05–16:15:20 order 服务 POST /api/orders 5xx 占比 97%，异常全部为上面的 ResourceAccessException。
+    同时段 inventory：
+      docker events: container die (exitCode=137, OOMKilled=true) twinfix-demo-inventory-1 16:12:03
+      docker events: container start twinfix-demo-inventory-1 16:12:09
+      up{job="inventory"} 16:12–16:15 为 0；16:15:18 起 /actuator/health 恢复 UP。
+    16:15:20 之后 order 5xx 归零，无代码发布；inventory 内存上限 512MB，当时 RSS 510MB。
+expect:
+  outcome: NOT_BUG
+  root_cause_keywords: ["inventory", "宕机", "OOM", "Connection refused", "下游"]

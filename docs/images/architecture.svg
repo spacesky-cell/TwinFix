@@ -1,0 +1,140 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="830" viewBox="0 0 1200 830" font-family="'Segoe UI','PingFang SC','Microsoft YaHei','Noto Sans CJK SC',sans-serif" role="img" aria-label="TwinFix 架构图">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#64748b"/>
+    </marker>
+    <marker id="arrow-dash" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#f59e0b"/>
+    </marker>
+    <filter id="soft" x="-4%" y="-4%" width="108%" height="112%">
+      <feDropShadow dx="0" dy="1.5" stdDeviation="2.5" flood-color="#000" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="830" fill="#0b1220"/>
+  <text x="40" y="21" fill="#e2e8f0" font-size="17" font-weight="700" letter-spacing="0.4">TwinFix · 一次性孪生环境里的自动诊断与修复</text>
+
+  <!-- ============ 1 信号入口 ============ -->
+  <rect x="40" y="34" width="1120" height="82" rx="10" fill="#111c2e" stroke="#24344d"/>
+  <text x="58" y="56" fill="#38bdf8" font-size="12" font-weight="700" letter-spacing="1">① 信号入口</text>
+  <text x="58" y="74" fill="#8aa0bb" font-size="11">Webhook 验签 · 入库即返回 · 异步处理</text>
+  <g font-size="12.5" fill="#dbe7f5">
+    <rect x="300" y="48" width="156" height="52" rx="8" fill="#16283f" stroke="#2c4a6e"/><text x="378" y="79" text-anchor="middle">告警 Webhook</text>
+    <rect x="468" y="48" width="156" height="52" rx="8" fill="#16283f" stroke="#2c4a6e"/><text x="546" y="79" text-anchor="middle">日志 / 指标异常</text>
+    <rect x="636" y="48" width="156" height="52" rx="8" fill="#16283f" stroke="#2c4a6e"/><text x="714" y="79" text-anchor="middle">GitHub Issue</text>
+    <rect x="804" y="48" width="156" height="52" rx="8" fill="#16283f" stroke="#2c4a6e"/><text x="882" y="79" text-anchor="middle">人工提交 / IM</text>
+  </g>
+
+  <line x1="600" y1="116" x2="600" y2="136" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+  <!-- ============ 2 分诊 ============ -->
+  <rect x="40" y="136" width="1120" height="82" rx="10" fill="#111c2e" stroke="#24344d"/>
+  <text x="58" y="158" fill="#818cf8" font-size="12" font-weight="700" letter-spacing="1">② 分诊 Triage</text>
+  <text x="58" y="176" fill="#8aa0bb" font-size="11">规则可配置 · 不确定时由 LLM 辅助</text>
+  <g font-size="12.5" fill="#e6edf7">
+    <rect x="300" y="150" width="180" height="52" rx="8" fill="#1a2140" stroke="#39427a"/><text x="390" y="181" text-anchor="middle">归一化 → 指纹</text>
+    <rect x="496" y="150" width="180" height="52" rx="8" fill="#1a2140" stroke="#39427a"/><text x="586" y="181" text-anchor="middle">去重聚合</text>
+    <rect x="692" y="150" width="180" height="52" rx="8" fill="#1a2140" stroke="#39427a"/><text x="782" y="181" text-anchor="middle">非 bug 过滤 · 定级</text>
+    <rect x="888" y="150" width="180" height="52" rx="8" fill="#1a2140" stroke="#39427a"/><text x="978" y="181" text-anchor="middle">创建 / 合并 Incident</text>
+  </g>
+
+  <line x1="600" y1="218" x2="600" y2="238" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+  <!-- ============ 3 编排 ============ -->
+  <rect x="40" y="238" width="1120" height="94" rx="10" fill="#111c2e" stroke="#24344d"/>
+  <text x="58" y="260" fill="#a78bfa" font-size="12" font-weight="700" letter-spacing="1">③ 异步编排</text>
+  <text x="58" y="278" fill="#8aa0bb" font-size="11">确定性状态机驱动，LLM 只在节点内推理</text>
+  <g font-size="12.5" fill="#e6edf7">
+    <rect x="300" y="252" width="150" height="58" rx="8" fill="#241a3d" stroke="#4c3a78"/><text x="375" y="286" text-anchor="middle">API → MQ</text>
+    <rect x="466" y="252" width="150" height="58" rx="8" fill="#241a3d" stroke="#4c3a78"/><text x="541" y="286" text-anchor="middle">RabbitMQ</text>
+    <rect x="632" y="252" width="150" height="58" rx="8" fill="#241a3d" stroke="#4c3a78"/><text x="707" y="286" text-anchor="middle">worker ×N</text>
+    <rect x="798" y="252" width="270" height="58" rx="8" fill="#2a1d45" stroke="#6d5aa8"/>
+    <text x="933" y="277" text-anchor="middle" font-weight="600">LangGraph 状态机</text>
+    <text x="933" y="295" text-anchor="middle" font-size="10.5" fill="#b9a8e0">PG checkpoint · Redis 单活锁 · 断点续跑</text>
+  </g>
+
+  <line x1="600" y1="332" x2="600" y2="352" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+  <!-- ============ 4 Agent ============ -->
+  <rect x="40" y="352" width="1120" height="150" rx="10" fill="#111c2e" stroke="#24344d"/>
+  <text x="58" y="374" fill="#fbbf24" font-size="12" font-weight="700" letter-spacing="1">④ 五个专职 Agent</text>
+  <text x="58" y="392" fill="#8aa0bb" font-size="11">拆分依据：工具 / 权限 / 上下文不同</text>
+  <g font-size="13" fill="#f5e9c8">
+    <rect x="300" y="386" width="156" height="82" rx="8" fill="#33280f" stroke="#7a5c1c"/>
+    <text x="378" y="412" text-anchor="middle" font-weight="700">Diagnoser</text>
+    <text x="378" y="432" text-anchor="middle" font-size="10.5" fill="#d4be8a">根因假设树 · 证据</text>
+    <text x="378" y="450" text-anchor="middle" font-size="10.5" fill="#a9956c">→ Diagnosis</text>
+
+    <rect x="464" y="386" width="156" height="82" rx="8" fill="#33280f" stroke="#7a5c1c"/>
+    <text x="542" y="412" text-anchor="middle" font-weight="700">Reproducer</text>
+    <text x="542" y="432" text-anchor="middle" font-size="10.5" fill="#d4be8a">失败用例 · 命令</text>
+    <text x="542" y="450" text-anchor="middle" font-size="10.5" fill="#a9956c">→ Repro</text>
+
+    <rect x="628" y="386" width="156" height="82" rx="8" fill="#3a2a0c" stroke="#a87a1f"/>
+    <text x="706" y="412" text-anchor="middle" font-weight="700">Fixer</text>
+    <text x="706" y="432" text-anchor="middle" font-size="10.5" fill="#d4be8a">最小 diff · 说明</text>
+    <text x="706" y="450" text-anchor="middle" font-size="10.5" fill="#a9956c">→ Patch</text>
+
+    <rect x="792" y="386" width="156" height="82" rx="8" fill="#3a2a0c" stroke="#a87a1f"/>
+    <text x="870" y="412" text-anchor="middle" font-weight="700">Verifier</text>
+    <text x="870" y="432" text-anchor="middle" font-size="10.5" fill="#d4be8a">复现 + 回归 + 扫描</text>
+    <text x="870" y="450" text-anchor="middle" font-size="10.5" fill="#a9956c">→ Verification</text>
+
+    <rect x="956" y="386" width="156" height="82" rx="8" fill="#33280f" stroke="#7a5c1c"/>
+    <text x="1034" y="412" text-anchor="middle" font-weight="700">Reporter</text>
+    <text x="1034" y="432" text-anchor="middle" font-size="10.5" fill="#d4be8a">PR · 邮件 · 飞书卡片</text>
+    <text x="1034" y="450" text-anchor="middle" font-size="10.5" fill="#a9956c">→ Report</text>
+  </g>
+  <path d="M870 472 C 820 500, 756 500, 706 472" fill="none" stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arrow-dash)"/>
+  <text x="788" y="500" text-anchor="middle" fill="#f0b24a" font-size="10.5">验证失败回炉（≤3 次）</text>
+
+  <line x1="600" y1="502" x2="600" y2="522" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+  <!-- ============ 5 工具网关 ============ -->
+  <rect x="40" y="522" width="1120" height="78" rx="10" fill="#111c2e" stroke="#24344d"/>
+  <text x="58" y="544" fill="#fb7185" font-size="12" font-weight="700" letter-spacing="1">⑤ 工具网关 · 唯一出口</text>
+  <text x="58" y="562" fill="#8aa0bb" font-size="11">安全靠代码强制，不靠 Prompt</text>
+  <g font-size="11.5" fill="#ffd9df">
+    <rect x="300" y="536" width="112" height="46" rx="7" fill="#331a22" stroke="#7e3040"/><text x="356" y="564" text-anchor="middle">白名单</text>
+    <rect x="420" y="536" width="112" height="46" rx="7" fill="#331a22" stroke="#7e3040"/><text x="476" y="564" text-anchor="middle">权限分级</text>
+    <rect x="540" y="536" width="112" height="46" rx="7" fill="#331a22" stroke="#7e3040"/><text x="596" y="564" text-anchor="middle">路径 / 频率</text>
+    <rect x="660" y="536" width="112" height="46" rx="7" fill="#331a22" stroke="#7e3040"/><text x="716" y="564" text-anchor="middle">预算</text>
+    <rect x="780" y="536" width="112" height="46" rx="7" fill="#331a22" stroke="#7e3040"/><text x="836" y="564" text-anchor="middle">审批</text>
+    <rect x="900" y="536" width="112" height="46" rx="7" fill="#331a22" stroke="#7e3040"/><text x="956" y="564" text-anchor="middle">脱敏 / 审计</text>
+  </g>
+
+  <line x1="600" y1="600" x2="600" y2="620" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+  <!-- ============ 6 适配层 ============ -->
+  <rect x="40" y="620" width="1120" height="84" rx="10" fill="#111c2e" stroke="#24344d"/>
+  <text x="58" y="642" fill="#34d399" font-size="12" font-weight="700" letter-spacing="1">⑥ 适配层 · 接口 + 实现，可替换</text>
+  <g font-size="11.5" fill="#d6f5e8">
+    <rect x="300" y="652" width="130" height="40" rx="7" fill="#0f2b24" stroke="#2a6b57"/><text x="365" y="677" text-anchor="middle">可观测 Prom/ES</text>
+    <rect x="442" y="652" width="110" height="40" rx="7" fill="#0f2b24" stroke="#2a6b57"/><text x="497" y="677" text-anchor="middle">GitHub App</text>
+    <rect x="564" y="652" width="110" height="40" rx="7" fill="#0f2b24" stroke="#2a6b57"/><text x="619" y="677" text-anchor="middle">Jenkins</text>
+    <rect x="686" y="652" width="130" height="40" rx="7" fill="#0f2b24" stroke="#2a6b57"/><text x="751" y="677" text-anchor="middle">孪生 Compose</text>
+    <rect x="828" y="652" width="130" height="40" rx="7" fill="#0f2b24" stroke="#2a6b57"/><text x="893" y="677" text-anchor="middle">Docker 沙箱</text>
+    <rect x="970" y="652" width="130" height="40" rx="7" fill="#0f2b24" stroke="#2a6b57"/><text x="1035" y="677" text-anchor="middle">通知 / LLM</text>
+  </g>
+
+  <line x1="600" y1="704" x2="600" y2="724" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+  <!-- ============ 7 边界与人机 ============ -->
+  <rect x="40" y="724" width="1120" height="86" rx="10" fill="#111c2e" stroke="#24344d"/>
+  <text x="58" y="746" fill="#22d3ee" font-size="12" font-weight="700" letter-spacing="1">⑦ 安全边界 · 人机协同</text>
+  <g font-size="12" fill="#dcf5fb">
+    <rect x="300" y="736" width="252" height="58" rx="8" fill="#0c2b33" stroke="#22606f"/>
+    <text x="426" y="759" text-anchor="middle" font-weight="600">孪生环境 · 无网络</text>
+    <text x="426" y="778" text-anchor="middle" font-size="10.5" fill="#8cc6d4">一次性 Docker Compose · TTL 回收 · 不接生产</text>
+
+    <rect x="568" y="736" width="252" height="58" rx="8" fill="#0c2b33" stroke="#22606f"/>
+    <text x="694" y="759" text-anchor="middle" font-weight="600">人工审批 → 合入 dev</text>
+    <text x="694" y="778" text-anchor="middle" font-size="10.5" fill="#8cc6d4">控制台一键批准 · Agent 永不直接合并</text>
+
+    <rect x="836" y="736" width="264" height="58" rx="8" fill="#0c2b33" stroke="#22606f"/>
+    <text x="968" y="759" text-anchor="middle" font-weight="600">事件流 → SSE → 控制台</text>
+    <text x="968" y="778" text-anchor="middle" font-size="10.5" fill="#8cc6d4">incident_event · Redis Pub/Sub · 实时时间线</text>
+  </g>
+
+  <text x="58" y="826" fill="#5b708a" font-size="10.5">诊断 → 复现 → 修复 → 验证 → 报告 → 人工复测 → 合并；最终由 Agent 看不到的隐藏测试判分。</text>
+</svg>

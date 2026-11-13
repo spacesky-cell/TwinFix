@@ -1,0 +1,88 @@
+# 可观测栈（基准测试/本地演示用）：Prometheus + Elasticsearch + Filebeat + SkyWalking OAP + Jaeger + Grafana
+#   docker compose -f deploy/observability/compose.observability.yml up -d
+# TwinFix 侧配置（server/.env）：
+#   TWINFIX_OBSERVABILITY=stack
+#   TWINFIX_PROMETHEUS_URL=http://127.0.0.1:9090
+#   TWINFIX_ELASTICSEARCH_URL=http://127.0.0.1:9200
+#   TWINFIX_ES_LOGS_INDEX=logs-*
+#   TWINFIX_SKYWALKING_URL=http://127.0.0.1:12800/graphql
+#   TWINFIX_OTEL_ENABLED=true
+#   TWINFIX_OTEL_ENDPOINT=http://127.0.0.1:4318   # worker 在容器里时改用 http://host.docker.internal:4318
+# Filebeat 采集本机全部容器的 stdout，只保留 compose 服务名为 order / inventory 的日志；
+# Prometheus 通过 Docker 服务发现抓取带 dev.twinfix.metrics 标签的容器（孪生环境的服务）；
+# Jaeger 接收 TwinFix worker 导出的 OTel trace（OTLP/HTTP），UI 在 http://127.0.0.1:16686。
+# 端口只绑 127.0.0.1；ES 关闭了安全特性，仅限本机演示，切勿对外暴露。
+name: twinfix-obs
+
+services:
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=3d
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports: ["127.0.0.1:9090:9090"]
+    user: root  # 读 docker.sock 做服务发现
+    # 让容器能访问宿主机上 127.0.0.1:8000 的 TwinFix API（/api/metrics）
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    restart: unless-stopped
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.5
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
+    ports: ["127.0.0.1:9200:9200"]
+    volumes: [es-data:/usr/share/elasticsearch/data]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:9200/_cluster/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+    restart: unless-stopped
+
+  filebeat:
+    image: docker.elastic.co/beats/filebeat:8.15.5
+    user: root
+    command: ["filebeat", "-e", "--strict.perms=false"]
+    volumes:
+      - ./filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      elasticsearch: { condition: service_healthy }
+    restart: unless-stopped
+
+  oap:
+    image: apache/skywalking-oap-server:10.2.0
+    environment:
+      SW_STORAGE: elasticsearch
+      SW_STORAGE_ES_CLUSTER_NODES: elasticsearch:9200
+      SW_HEALTH_CHECKER: default
+    ports: ["127.0.0.1:11800:11800", "127.0.0.1:12800:12800"]
+    depends_on:
+      elasticsearch: { condition: service_healthy }
+    restart: unless-stopped
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.62.0
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports: ["127.0.0.1:16686:16686", "127.0.0.1:4318:4318"]
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.6.0
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+    ports: ["127.0.0.1:3000:3000"]
+    restart: unless-stopped
+
+volumes:
+  es-data:

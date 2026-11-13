@@ -1,0 +1,25 @@
+diff --git a/order/src/main/java/com/acme/order/infra/HttpPaymentGateway.java b/order/src/main/java/com/acme/order/infra/HttpPaymentGateway.java
+index 02b16dd..0a9673c 100644
+--- a/order/src/main/java/com/acme/order/infra/HttpPaymentGateway.java
++++ b/order/src/main/java/com/acme/order/infra/HttpPaymentGateway.java
+@@ -1,5 +1,7 @@
+ package com.acme.order.infra;
+ 
++import java.time.Duration;
++import org.springframework.http.client.SimpleClientHttpRequestFactory;
+ import org.springframework.web.client.RestClient;
+ 
+ public class HttpPaymentGateway implements PaymentGateway {
+@@ -11,7 +13,11 @@ public class HttpPaymentGateway implements PaymentGateway {
+     }
+ 
+     public static HttpPaymentGateway create(String baseUrl) {
+-        return new HttpPaymentGateway(RestClient.builder().baseUrl(baseUrl).build());
++        // 第三方渠道必须有超时：无超时时渠道一旦挂起，每个请求线程都会无限期阻塞，直到 Tomcat 线程池被占满
++        var factory = new SimpleClientHttpRequestFactory();
++        factory.setConnectTimeout(Duration.ofSeconds(2));
++        factory.setReadTimeout(Duration.ofSeconds(3));
++        return new HttpPaymentGateway(RestClient.builder().baseUrl(baseUrl).requestFactory(factory).build());
+     }
+ 
+     @Override

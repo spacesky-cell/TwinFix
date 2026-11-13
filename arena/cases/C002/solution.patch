@@ -1,0 +1,17 @@
+diff --git a/order/src/main/java/com/acme/order/service/OrderService.java b/order/src/main/java/com/acme/order/service/OrderService.java
+index 9a9a1c8..eaccb98 100644
+--- a/order/src/main/java/com/acme/order/service/OrderService.java
++++ b/order/src/main/java/com/acme/order/service/OrderService.java
+@@ -71,8 +71,10 @@ public class OrderService {
+ 
+     /** 订单分页列表，page 从 1 开始。 */
+     public List<Order> listPage(int page, int size) {
+-        // findPage takes a row offset; page 1 means "skip to the first page of results"
+-        return orders.findPage(page * size, size);
++        if (page < 1 || size < 1) {
++            throw new BizException("BAD_PAGE", "page and size must be >= 1");
++        }
++        return orders.findPage((page - 1) * size, size);
+     }
+ 
+     /** 支付回调：置为 PAID。经 self 调用保证事务注解在代理上生效。 */

@@ -1,0 +1,28 @@
+diff --git a/order/src/main/java/com/acme/order/infra/CachingProductRepository.java b/order/src/main/java/com/acme/order/infra/CachingProductRepository.java
+index 5316263..5ee678c 100644
+--- a/order/src/main/java/com/acme/order/infra/CachingProductRepository.java
++++ b/order/src/main/java/com/acme/order/infra/CachingProductRepository.java
+@@ -9,7 +9,8 @@ import java.util.concurrent.ConcurrentHashMap;
+ public class CachingProductRepository implements ProductRepository {
+ 
+     private final ProductRepository delegate;
+-    private final Map<String, BigDecimal> cache = new ConcurrentHashMap<>();
++    // 值为 Optional：不存在的 sku 也缓存空结果，避免同一个无效 sku 每次都打穿到数据库
++    private final Map<String, Optional<BigDecimal>> cache = new ConcurrentHashMap<>();
+ 
+     public CachingProductRepository(ProductRepository delegate) {
+         this.delegate = delegate;
+@@ -17,12 +18,6 @@ public class CachingProductRepository implements ProductRepository {
+ 
+     @Override
+     public Optional<BigDecimal> findPrice(String sku) {
+-        BigDecimal cached = cache.get(sku);
+-        if (cached != null) {
+-            return Optional.of(cached);
+-        }
+-        Optional<BigDecimal> loaded = delegate.findPrice(sku);
+-        loaded.ifPresent(p -> cache.put(sku, p));
+-        return loaded;
++        return cache.computeIfAbsent(sku, delegate::findPrice);
+     }
+ }

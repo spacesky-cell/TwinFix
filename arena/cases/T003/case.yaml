@@ -1,0 +1,30 @@
+id: T003
+title: 库存不足的正常 409 被当成故障上报
+category: 业务异常
+description: >
+  大促期间监控把 POST /api/orders 的 409 当成错误率告警。409 来自库存的 OutOfStock
+  （库存真的卖完了），是 TWINFIX.md 约定的业务拒绝，不是缺陷。信号里没有异常堆栈，
+  需要诊断 Agent 读代码与项目约定后给出 NOT_BUG，而不是"修复"成放行超卖。
+language: typescript
+seed: demo-ts
+project_config:
+  project_packages: [orders]
+  twin:
+    directory: arena/demo-ts/twin
+    services: [orders]
+inject:
+  type: none
+  services: [orders]
+signal:
+  title: "POST /api/orders 错误率 18%（HTTP 409）"
+  service: orders
+  env: test
+  severity: S3
+  message: |
+    告警：orders 服务 4xx 错误率 18%（阈值 5%），集中在 POST /api/orders，状态码 409。
+    样例响应：{"code":"OUT_OF_STOCK","message":"insufficient stock for SKU-3: requested 2, available 0"}
+    同期 GET /api/stock/SKU-3 返回 {"sku":"SKU-3","available":0}。
+    无 5xx，无异常堆栈。
+expect:
+  outcome: NOT_BUG
+  root_cause_keywords: ["库存", "409", "OUT_OF_STOCK", "业务"]

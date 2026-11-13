@@ -1,0 +1,65 @@
+diff --git a/orders/pricing.go b/orders/pricing.go
+index e292f40..8048826 100644
+--- a/orders/pricing.go
++++ b/orders/pricing.go
+@@ -16,11 +16,8 @@ func (c PriceCalculator) Calculate(lines []OrderLine, coupon *Coupon) PriceBreak
+ }
+ 
+ func (c PriceCalculator) DiscountFor(subtotal Money, coupon *Coupon) Money {
+-	if coupon == nil {
+-		return 0
+-	}
+ 	threshold := c.threshold(coupon)
+-	if subtotal < threshold {
++	if coupon == nil || subtotal < threshold {
+ 		return 0
+ 	}
+ 	switch coupon.Kind {
+diff --git a/orders/pricing_test.go b/orders/pricing_test.go
+index 5cd523e..5351316 100644
+--- a/orders/pricing_test.go
++++ b/orders/pricing_test.go
+@@ -6,16 +6,6 @@ func testLines(unitPrice Money, quantity int) []OrderLine {
+ 	return []OrderLine{{SKU: "SKU-X", Quantity: quantity, UnitPrice: unitPrice}}
+ }
+ 
+-func TestNoCouponUsesSubtotal(t *testing.T) {
+-	breakdown := PriceCalculator{}.Calculate(testLines(17980, 1), nil)
+-	if breakdown.Total() != 17980 {
+-		t.Fatalf("total = %s, want 179.80", breakdown.Total())
+-	}
+-	if breakdown.Discount != 0 || breakdown.AppliedCoupon != "" {
+-		t.Fatalf("unexpected discount: %+v", breakdown)
+-	}
+-}
+-
+ func TestAmountCouponAppliesAtThreshold(t *testing.T) {
+ 	coupon := &Coupon{Code: "SAVE20", Kind: "amount", Value: 2000, Threshold: 10000}
+ 	breakdown := PriceCalculator{}.Calculate(testLines(10000, 1), coupon)
+diff --git a/orders/service_test.go b/orders/service_test.go
+index 0df6ba7..e8e430f 100644
+--- a/orders/service_test.go
++++ b/orders/service_test.go
+@@ -40,22 +40,3 @@ func TestFailedMultiLineOrderReleasesReservedLines(t *testing.T) {
+ 	}
+ }
+ 
+-func TestCouponDoesNotLeakBetweenOrders(t *testing.T) {
+-	inventory := NewInventoryWith(map[string]int{"SKU-1": 10, "SKU-2": 10})
+-	service := NewOrderService(inventory)
+-	coupon := &Coupon{Code: "SAVE20", Kind: "amount", Value: 2000, Threshold: 10000}
+-	first, err := service.Create("u-1", []OrderLine{{SKU: "SKU-1", Quantity: 1, UnitPrice: 10000}}, coupon)
+-	if err != nil {
+-		t.Fatal(err)
+-	}
+-	if first.Total != 8000 {
+-		t.Fatalf("first total = %s, want 80.00", first.Total)
+-	}
+-	second, err := service.Create("u-2", []OrderLine{{SKU: "SKU-2", Quantity: 1, UnitPrice: 10000}}, nil)
+-	if err != nil {
+-		t.Fatal(err)
+-	}
+-	if second.Total != 10000 {
+-		t.Fatalf("second total = %s, want 100.00 (coupon leaked from previous order)", second.Total)
+-	}
+-}

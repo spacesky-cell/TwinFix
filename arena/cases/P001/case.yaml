@@ -1,0 +1,44 @@
+id: P001
+title: 无券下单 AttributeError（判空写在解引用之后）
+category: 空指针
+description: >
+  有人给满减券加了"门槛至少为券面值 2 倍"的兜底逻辑，把 self._threshold(coupon) 挪到了
+  coupon is None 判断之前，所有不带优惠券的订单都会 500。同一提交删掉了覆盖无券场景的单测，
+  CI 因此是绿的。
+language: python
+seed: demo-python
+project_config:
+  project_packages: [orders]
+  twin:
+    directory: arena/demo-python/twin
+    services: [orders]
+inject:
+  type: patch
+  file: inject.patch
+  branch: dev
+  message: "feat(orders): guard amount-coupon threshold against misconfiguration"
+  services: [orders]
+signal:
+  title: "POST /api/orders 500: AttributeError: 'NoneType' object has no attribute 'kind'"
+  service: orders
+  env: test
+  severity: S2
+  stacktrace: |
+    Traceback (most recent call last):
+      File "/app/orders/app.py", line 69, in do_POST
+        order = SERVICE.create(
+      File "/app/orders/service.py", line 30, in create
+        breakdown = self.calculator.calculate(cart.lines, coupon)
+      File "/app/orders/pricing.py", line 14, in calculate
+        discount = self.discount_for(subtotal, coupon)
+      File "/app/orders/pricing.py", line 22, in discount_for
+        threshold = self._threshold(coupon)
+      File "/app/orders/pricing.py", line 31, in _threshold
+        if coupon.kind == "amount":
+    AttributeError: 'NoneType' object has no attribute 'kind'
+expect:
+  outcome: fixed
+  root_cause_locations: ["orders/pricing.py#_threshold", "orders/pricing.py#discount_for"]
+  root_cause_keywords: ["None", "coupon", "判空", "AttributeError", "threshold"]
+# 隐藏测试：无券定价（修复前失败）+ 门槛边界与百分比券（防止"删掉兜底逻辑"之类的过度修复）
+hidden_tests: [hidden/test_pricing_hidden.py]

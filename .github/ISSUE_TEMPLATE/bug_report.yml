@@ -1,0 +1,53 @@
+name: Bug report
+description: 报告可复现的缺陷（不要贴密钥、真实事故数据或客户信息）
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        安全漏洞请不要开公开 Issue，改用 **Security → Report a vulnerability**（见 SECURITY.md）。
+        提交前请确认已删除 API Key、token、`.env` 内容与真实用户数据。
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 发生了什么
+      description: 实际行为与期望行为
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      description: 命令、配置、最小仓库或事故样例
+      placeholder: |
+        1. docker compose -f deploy/compose.dev.yml up -d --build
+        2. ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: 版本 / commit
+      placeholder: v0.1.0 或 commit sha
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: 影响范围
+      multiple: true
+      options:
+        - Server / orchestrator
+        - Agent / prompt
+        - Tool gateway / sandbox
+        - Twin environment
+        - Web console
+        - Arena / eval
+        - Docs / deploy
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志 / 截图
+      description: 已脱敏的相关日志；不要粘贴完整 `.env`
+      render: shell

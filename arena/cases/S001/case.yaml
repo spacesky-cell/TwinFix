@@ -1,0 +1,37 @@
+id: S001
+title: 无券下单 NullReferenceException（判空写在解引用之后）
+category: 空指针
+description: >
+  有人给满减券加了"门槛至少为券面值 2 倍"的兜底逻辑，把 ThresholdOf(coupon) 挪到了
+  coupon is null 判断之前。C# 对 null 访问属性会在运行时抛 NullReferenceException，
+  所有不带优惠券的订单都返回 400。同一提交删掉了覆盖无券场景的单测，CI 因此是绿的。
+language: csharp
+seed: demo-cs
+project_config:
+  project_packages: [Shop.Orders]
+  twin:
+    directory: arena/demo-cs/twin
+    services: [orders]
+inject:
+  type: patch
+  file: inject.patch
+  branch: dev
+  message: "refactor(orders): simplify coupon threshold lookup"
+  services: [orders]
+signal:
+  title: "POST /api/orders 400: NullReferenceException: Object reference not set to an instance of an object."
+  service: orders
+  env: test
+  severity: S2
+  stacktrace: |
+    System.NullReferenceException: Object reference not set to an instance of an object.
+       at Shop.Orders.PriceCalculator.ThresholdOf(Coupon coupon) in /app/orders/Pricing.cs:line 37
+       at Shop.Orders.PriceCalculator.DiscountFor(Decimal subtotal, Coupon coupon) in /app/orders/Pricing.cs:line 23
+       at Shop.Orders.PriceCalculator.Calculate(IReadOnlyList`1 lines, Coupon coupon) in /app/orders/Pricing.cs:line 13
+       at Shop.Orders.OrderService.Create(String customer, IReadOnlyList`1 lines, Coupon coupon) in /app/orders/Service.cs:line 42
+       at Program.Handle(HttpListenerContext context) in /app/orders/App.cs:line 60
+expect:
+  outcome: fixed
+  root_cause_locations: ["orders/Pricing.cs#ThresholdOf", "orders/Pricing.cs#DiscountFor"]
+  root_cause_keywords: ["NullReferenceException", "null", "coupon", "判空", "threshold"]
+hidden_tests: [hidden/PricingHiddenTests.cs]

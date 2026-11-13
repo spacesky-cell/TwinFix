@@ -1,0 +1,32 @@
+diff --git a/orders/service.go b/orders/service.go
+index 9d9be41..d32fa1c 100644
+--- a/orders/service.go
++++ b/orders/service.go
+@@ -10,7 +10,6 @@ type OrderService struct {
+ 	calculator PriceCalculator
+ 	orders     map[string]*Order
+ 	seq        int
+-	lastCoupon *Coupon
+ }
+ 
+ func NewOrderService(inventory *Inventory) *OrderService {
+@@ -21,9 +20,6 @@ func (s *OrderService) Create(customer string, lines []OrderLine, coupon *Coupon
+ 	if len(lines) == 0 {
+ 		return nil, errors.New("order needs at least one line")
+ 	}
+-	if coupon == nil {
+-		coupon = s.lastCoupon
+-	}
+ 	cart := NewCart(customer, nil)
+ 	for _, line := range lines {
+ 		if err := s.inventory.Reserve(line.SKU, line.Quantity); err != nil {
+@@ -43,9 +39,6 @@ func (s *OrderService) Create(customer string, lines []OrderLine, coupon *Coupon
+ 		Total:    breakdown.Total(),
+ 	}
+ 	s.orders[order.ID] = order
+-	if coupon != nil {
+-		s.lastCoupon = coupon
+-	}
+ 	return order, nil
+ }
+ 

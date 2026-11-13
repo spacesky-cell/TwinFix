@@ -1,0 +1,36 @@
+id: S002
+title: 第二笔订单沿用上一笔优惠券（最近优惠券缓存泄漏）
+category: 共享状态
+description: >
+  一次"性能优化"在 OrderService 上缓存了最近使用的优惠券：请求未带优惠券时回落到
+  _lastCoupon。于是同一进程内，第一单用过满减券后，第二单即使没有券也会被减免，
+  对账金额与客户端展示不一致。单测只覆盖单笔订单，CI 是绿的。
+language: csharp
+seed: demo-cs
+project_config:
+  project_packages: [Shop.Orders]
+  twin:
+    directory: arena/demo-cs/twin
+    services: [orders]
+inject:
+  type: patch
+  file: inject.patch
+  branch: dev
+  message: "perf(orders): reuse last coupon for faster pricing"
+  services: [orders]
+signal:
+  title: "对账：未使用优惠券的订单仍被减免 20.00"
+  service: orders
+  env: test
+  severity: S2
+  message: |
+    客服反馈连续下单时第二单金额异常：
+      订单 o-102（客户 u-2002，SKU-2 ×1，单价 100.00，未使用优惠券）应收 100.00，实际 80.00；
+      8 秒前的 o-101（客户 u-1001，SKU-1 ×1，100.00，使用 SAVE20 减 20.00）的优惠被带进了 o-102。
+    连续复现 5 次，每次第二单都沿用上一单的优惠；进程重启后的第一单又正常。
+    服务未抛异常，日志无堆栈。
+expect:
+  outcome: fixed
+  root_cause_locations: ["orders/Service.cs#Create"]
+  root_cause_keywords: ["_lastCoupon", "lastCoupon", "coupon", "泄漏", "共享", "状态"]
+hidden_tests: [hidden/ServiceHiddenTests.cs]

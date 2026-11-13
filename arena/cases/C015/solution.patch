@@ -1,0 +1,29 @@
+diff --git a/inventory/src/main/java/com/acme/inventory/messaging/ReserveListener.java b/inventory/src/main/java/com/acme/inventory/messaging/ReserveListener.java
+index 627d6ae..27a2509 100644
+--- a/inventory/src/main/java/com/acme/inventory/messaging/ReserveListener.java
++++ b/inventory/src/main/java/com/acme/inventory/messaging/ReserveListener.java
+@@ -10,6 +10,9 @@ public class ReserveListener {
+ 
+     private static final Logger log = LoggerFactory.getLogger(ReserveListener.class);
+ 
++    /** 超过这个投递次数仍失败就进死信，避免毒消息无限重投。 */
++    static final int MAX_DELIVERIES = 5;
++
+     private final StockService stock;
+ 
+     public ReserveListener(StockService stock) {
+@@ -25,8 +28,12 @@ public class ReserveListener {
+             log.info("out of stock for order {}: {}", msg.orderId(), e.getMessage());
+             return Ack.ACK;
+         } catch (RuntimeException e) {
+-            // 数据库抖动等临时故障：放回队列，稍后重试
+-            log.error("reserve failed for message {} (delivery {}), requeue", msg.messageId(), msg.deliveryCount(), e);
++            // 数据库抖动等临时故障：有限次重试；坏消息（如未知 SKU）重试多少次都会失败，到上限后转死信
++            if (msg.deliveryCount() >= MAX_DELIVERIES) {
++                log.error("reserve failed for message {} after {} deliveries, dead-letter", msg.messageId(), msg.deliveryCount(), e);
++                return Ack.DEAD_LETTER;
++            }
++            log.warn("reserve failed for message {} (delivery {}), requeue: {}", msg.messageId(), msg.deliveryCount(), e.getMessage());
+             return Ack.REQUEUE;
+         }
+     }

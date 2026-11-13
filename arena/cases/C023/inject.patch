@@ -1,0 +1,201 @@
+diff --git a/order/src/main/java/com/acme/order/config/OrderConfig.java b/order/src/main/java/com/acme/order/config/OrderConfig.java
+index 0803231..4efb15c 100644
+--- a/order/src/main/java/com/acme/order/config/OrderConfig.java
++++ b/order/src/main/java/com/acme/order/config/OrderConfig.java
+@@ -9,6 +9,8 @@ import com.acme.order.infra.JdbcOrderRepository;
+ import com.acme.order.infra.JdbcProductRepository;
+ import com.acme.order.infra.OrderRepository;
+ import com.acme.order.infra.ProductRepository;
++import com.acme.order.notify.LoggingNotificationSender;
++import com.acme.order.notify.OrderNotifier;
+ import com.acme.order.service.OrderService;
+ import java.time.Clock;
+ import java.time.Duration;
+@@ -39,6 +41,11 @@ public class OrderConfig {
+         return new JdbcOrderRepository(jdbc, tx);
+     }
+ 
++    @Bean(destroyMethod = "close")
++    OrderNotifier orderNotifier() {
++        return new OrderNotifier(new LoggingNotificationSender(), 4);
++    }
++
+     @Bean
+     InventoryGateway inventoryGateway(@Value("${shop.inventory-url}") String url) {
+         var factory = new SimpleClientHttpRequestFactory();
+diff --git a/order/src/main/java/com/acme/order/notify/LoggingNotificationSender.java b/order/src/main/java/com/acme/order/notify/LoggingNotificationSender.java
+new file mode 100644
+index 0000000..4212c98
+--- /dev/null
++++ b/order/src/main/java/com/acme/order/notify/LoggingNotificationSender.java
+@@ -0,0 +1,15 @@
++package com.acme.order.notify;
++
++import org.slf4j.Logger;
++import org.slf4j.LoggerFactory;
++
++/** 本地/测试环境的通道实现：只打日志。 */
++public class LoggingNotificationSender implements NotificationSender {
++
++    private static final Logger log = LoggerFactory.getLogger(LoggingNotificationSender.class);
++
++    @Override
++    public void send(String customer, String message) {
++        log.info("notify {}: {}", customer, message);
++    }
++}
+diff --git a/order/src/main/java/com/acme/order/notify/NotificationSender.java b/order/src/main/java/com/acme/order/notify/NotificationSender.java
+new file mode 100644
+index 0000000..25d3e82
+--- /dev/null
++++ b/order/src/main/java/com/acme/order/notify/NotificationSender.java
+@@ -0,0 +1,7 @@
++package com.acme.order.notify;
++
++/** 下游消息通道（短信 / App 推送）。 */
++public interface NotificationSender {
++
++    void send(String customer, String message);
++}
+diff --git a/order/src/main/java/com/acme/order/notify/OrderNotifier.java b/order/src/main/java/com/acme/order/notify/OrderNotifier.java
+new file mode 100644
+index 0000000..e67502f
+--- /dev/null
++++ b/order/src/main/java/com/acme/order/notify/OrderNotifier.java
+@@ -0,0 +1,52 @@
++package com.acme.order.notify;
++
++import com.acme.order.domain.Order;
++import java.util.concurrent.ExecutorService;
++import java.util.concurrent.Executors;
++import java.util.concurrent.ThreadPoolExecutor;
++import java.util.concurrent.TimeUnit;
++import java.util.concurrent.atomic.AtomicInteger;
++import org.slf4j.Logger;
++import org.slf4j.LoggerFactory;
++
++/**
++ * 下单成功通知。通道偶尔很慢（短信网关 1~2s），放到独立线程池异步发送，不拖慢下单接口。
++ */
++public class OrderNotifier implements AutoCloseable {
++
++    private static final Logger log = LoggerFactory.getLogger(OrderNotifier.class);
++
++    private final NotificationSender sender;
++    private final ExecutorService pool;
++
++    public OrderNotifier(NotificationSender sender, int threads) {
++        this.sender = sender;
++        AtomicInteger seq = new AtomicInteger();
++        this.pool = Executors.newFixedThreadPool(threads, r -> {
++            Thread t = new Thread(r, "order-notify-" + seq.incrementAndGet());
++            t.setDaemon(true);
++            return t;
++        });
++    }
++
++    public void orderCreated(Order order) {
++        pool.execute(() -> {
++            try {
++                sender.send(order.customer(), "订单 " + order.id() + " 已创建，应付 " + order.price().total());
++            } catch (RuntimeException e) {
++                log.warn("notify failed for order {}: {}", order.id(), e.getMessage());
++            }
++        });
++    }
++
++    /** 暴露给监控（Micrometer ExecutorServiceMetrics）：活跃线程、排队数。 */
++    public ThreadPoolExecutor executor() {
++        return (ThreadPoolExecutor) pool;
++    }
++
++    @Override
++    public void close() throws InterruptedException {
++        pool.shutdown();
++        pool.awaitTermination(5, TimeUnit.SECONDS);
++    }
++}
+diff --git a/order/src/main/java/com/acme/order/web/OrderController.java b/order/src/main/java/com/acme/order/web/OrderController.java
+index 41553f3..4de6dcc 100644
+--- a/order/src/main/java/com/acme/order/web/OrderController.java
++++ b/order/src/main/java/com/acme/order/web/OrderController.java
+@@ -1,6 +1,7 @@
+ package com.acme.order.web;
+ 
+ import com.acme.order.domain.Order;
++import com.acme.order.notify.OrderNotifier;
+ import com.acme.order.service.OrderService;
+ import org.springframework.http.HttpStatus;
+ import org.springframework.web.bind.annotation.GetMapping;
+@@ -16,15 +17,19 @@ import org.springframework.web.bind.annotation.RestController;
+ public class OrderController {
+ 
+     private final OrderService service;
++    private final OrderNotifier notifier;
+ 
+-    public OrderController(OrderService service) {
++    public OrderController(OrderService service, OrderNotifier notifier) {
+         this.service = service;
++        this.notifier = notifier;
+     }
+ 
+     @PostMapping
+     @ResponseStatus(HttpStatus.CREATED)
+     public Order create(@RequestBody OrderService.CreateOrder req) {
+-        return service.create(req);
++        Order saved = service.create(req);
++        notifier.orderCreated(saved);
++        return saved;
+     }
+ 
+     @GetMapping("/{id}")
+diff --git a/order/src/test/java/com/acme/order/notify/OrderNotifierTest.java b/order/src/test/java/com/acme/order/notify/OrderNotifierTest.java
+new file mode 100644
+index 0000000..f7e5ca0
+--- /dev/null
++++ b/order/src/test/java/com/acme/order/notify/OrderNotifierTest.java
+@@ -0,0 +1,44 @@
++package com.acme.order.notify;
++
++import static org.assertj.core.api.Assertions.assertThat;
++
++import com.acme.order.domain.Order;
++import com.acme.order.domain.PriceBreakdown;
++import java.math.BigDecimal;
++import java.time.Instant;
++import java.util.List;
++import java.util.concurrent.CopyOnWriteArrayList;
++import java.util.concurrent.TimeUnit;
++import org.junit.jupiter.api.Test;
++
++class OrderNotifierTest {
++
++    private static Order order(long id) {
++        BigDecimal t = new BigDecimal("10.00");
++        return new Order(id, "u-" + id, List.of(), new PriceBreakdown(t, BigDecimal.ZERO, t, null), "CREATED", Instant.EPOCH);
++    }
++
++    @Test
++    void sendsAsynchronously() throws Exception {
++        List<String> sent = new CopyOnWriteArrayList<>();
++        try (var notifier = new OrderNotifier((c, m) -> sent.add(c), 2)) {
++            for (long i = 1; i <= 20; i++) {
++                notifier.orderCreated(order(i));
++            }
++            notifier.executor().shutdown();
++            assertThat(notifier.executor().awaitTermination(5, TimeUnit.SECONDS)).isTrue();
++        }
++        assertThat(sent).hasSize(20);
++    }
++
++    @Test
++    void senderFailureDoesNotKillPool() throws Exception {
++        try (var notifier = new OrderNotifier((c, m) -> { throw new IllegalStateException("sms gateway 503"); }, 1)) {
++            notifier.orderCreated(order(1));
++            notifier.orderCreated(order(2));
++            notifier.executor().shutdown();
++            assertThat(notifier.executor().awaitTermination(5, TimeUnit.SECONDS)).isTrue();
++            assertThat(notifier.executor().getCompletedTaskCount()).isEqualTo(2);
++        }
++    }
++}

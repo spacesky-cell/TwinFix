@@ -1,0 +1,33 @@
+id: C022
+title: 退款申请日期格式写成 yyyy/MM/dd，客服提交全部 400
+category: 序列化
+description: >
+  新增的售后退款预审接口 POST /api/refunds，请求体 RefundRequest.receivedOn 用
+  @JsonFormat(pattern = "yyyy/MM/dd")，而客服工作台和项目里其余接口都发 ISO-8601（2026-10-15）。
+  Jackson 反序列化失败，Spring 直接回 400，业务代码一行都没进。
+  作者的单测按自己的斜杠格式构造 JSON，CI 是绿的。
+inject:
+  type: patch
+  file: inject.patch
+  branch: dev
+  message: "feat(order): refund pre-check endpoint with 7-day return window"
+  services: [order]
+signal:
+  title: "POST /api/refunds 100% 返回 400，客服无法提交退款"
+  service: order
+  env: test
+  severity: S2
+  message: |
+    上线后客服工作台提交退款全部失败，接口 POST /api/refunds 返回 400，无业务错误码。
+    样例请求体：{"orderId":1042,"amount":129.50,"reason":"尺码不合适","receivedOn":"2026-10-15"}
+    order 服务日志（WARN）：
+      o.s.w.s.m.s.DefaultHandlerExceptionResolver - Resolved [org.springframework.http.converter.HttpMessageNotReadableException:
+      JSON parse error: Cannot deserialize value of type `java.time.LocalDate` from String "2026-10-15":
+      Failed to deserialize java.time.LocalDate: (java.time.format.DateTimeParseException)
+      Text '2026-10-15' could not be parsed at index 4]
+expect:
+  outcome: fixed
+  root_cause_locations: ["order/src/main/java/com/acme/order/refund/RefundRequest.java#receivedOn"]
+  root_cause_keywords: ["JsonFormat", "日期格式", "ISO", "反序列化", "yyyy/MM/dd"]
+# 隐藏测试：ISO 日期能反序列化成正确的 LocalDate（不能月日颠倒），退货期判断仍基于该日期。
+hidden_tests: [hidden/RefundRequestIsoDateHiddenTest.java]

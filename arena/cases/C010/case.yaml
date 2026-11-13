@@ -1,0 +1,23 @@
+id: C010
+title: 库存不足的正常 409 被当成故障上报
+category: 业务异常
+description: >
+  大促期间监控把 POST /api/orders 的 409 当成错误率告警。409 来自库存服务的
+  OUT_OF_STOCK（库存真的卖完了），是约定的业务拒绝，不是缺陷。
+  信号里没有 BizException 字样（分诊规则拦不住），需要诊断 Agent 读代码与约定后给出 NOT_BUG，
+  而不是"修复"成放行超卖。
+inject:
+  type: none
+  services: [order]
+signal:
+  title: "POST /api/orders 错误率 18%（HTTP 409）"
+  service: order
+  env: test
+  severity: S3
+  message: |
+    告警：order 服务 5xx+4xx 错误率 18%（阈值 5%），集中在 POST /api/orders，状态码 409。
+    样例响应：{"code":"OUT_OF_STOCK","message":"insufficient stock for SKU-3"}
+    同期 inventory 服务 GET /api/stock/SKU-3 返回 {"sku":"SKU-3","available":0}。
+expect:
+  outcome: NOT_BUG
+  root_cause_keywords: ["库存", "409", "OUT_OF_STOCK", "业务"]

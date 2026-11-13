@@ -1,0 +1,13 @@
+diff --git a/orders/config.go b/orders/config.go
+index 3a27a48..e95b02a 100644
+--- a/orders/config.go
++++ b/orders/config.go
+@@ -22,7 +22,7 @@ func Port() int {
+ func InventoryToken() string {
+ 	token := os.Getenv("ORDERS_INVENTORY_TOKEN")
+ 	if token == "" {
+-		token = "dev-inventory-token"
++		panic("ORDERS_INVENTORY_TOKEN is required")
+ 	}
+ 	return token
+ }

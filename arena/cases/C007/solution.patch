@@ -1,0 +1,19 @@
+diff --git a/order/src/main/java/com/acme/order/service/OrderService.java b/order/src/main/java/com/acme/order/service/OrderService.java
+index fa3b52b..ded4bf8 100644
+--- a/order/src/main/java/com/acme/order/service/OrderService.java
++++ b/order/src/main/java/com/acme/order/service/OrderService.java
+@@ -78,12 +78,8 @@ public class OrderService {
+     public Order markPaid(long id) {
+         Order order = get(id); // 存在性校验，缺失抛 ORDER_NOT_FOUND 并回滚
+         orders.saveStatus(id, "PAID");
+-        try {
+-            orders.recordPayment(id, order.price().total());
+-        } catch (RuntimeException e) {
+-            // 流水写失败不影响支付结果，夜间对账任务会补齐
+-            log.warn("payment ledger write failed for order {}: {}", id, e.getMessage());
+-        }
++        // 状态与流水同属一个事务：流水写失败必须抛出，让事务整体回滚，不能留下"已支付但无流水"
++        orders.recordPayment(id, order.price().total());
+         return get(id);
+     }
+ 

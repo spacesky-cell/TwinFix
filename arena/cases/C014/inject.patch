@@ -1,0 +1,188 @@
+diff --git a/inventory/src/main/java/com/acme/inventory/config/InventoryConfig.java b/inventory/src/main/java/com/acme/inventory/config/InventoryConfig.java
+index ec635e0..7f5bd41 100644
+--- a/inventory/src/main/java/com/acme/inventory/config/InventoryConfig.java
++++ b/inventory/src/main/java/com/acme/inventory/config/InventoryConfig.java
+@@ -2,6 +2,9 @@ package com.acme.inventory.config;
+ 
+ import com.acme.inventory.infra.JdbcStockRepository;
+ import com.acme.inventory.infra.StockRepository;
++import com.acme.inventory.messaging.JdbcProcessedEvents;
++import com.acme.inventory.messaging.OrderEventConsumer;
++import com.acme.inventory.messaging.ProcessedEvents;
+ import com.acme.inventory.service.StockService;
+ import org.springframework.context.annotation.Bean;
+ import org.springframework.context.annotation.Configuration;
+@@ -19,4 +22,14 @@ public class InventoryConfig {
+     StockService stockService(StockRepository repo) {
+         return new StockService(repo);
+     }
++
++    @Bean
++    ProcessedEvents processedEvents(JdbcClient jdbc) {
++        return new JdbcProcessedEvents(jdbc);
++    }
++
++    @Bean
++    OrderEventConsumer orderEventConsumer(StockService stock, ProcessedEvents processed) {
++        return new OrderEventConsumer(stock, processed);
++    }
+ }
+diff --git a/inventory/src/main/java/com/acme/inventory/messaging/JdbcProcessedEvents.java b/inventory/src/main/java/com/acme/inventory/messaging/JdbcProcessedEvents.java
+new file mode 100644
+index 0000000..2dcdeb4
+--- /dev/null
++++ b/inventory/src/main/java/com/acme/inventory/messaging/JdbcProcessedEvents.java
+@@ -0,0 +1,20 @@
++package com.acme.inventory.messaging;
++
++import org.springframework.jdbc.core.simple.JdbcClient;
++
++public class JdbcProcessedEvents implements ProcessedEvents {
++
++    private final JdbcClient jdbc;
++
++    public JdbcProcessedEvents(JdbcClient jdbc) {
++        this.jdbc = jdbc;
++    }
++
++    @Override
++    public boolean record(String eventId) {
++        int inserted = jdbc.sql("INSERT INTO processed_event (event_id, processed_at) VALUES (:id, now()) ON CONFLICT DO NOTHING")
++                .param("id", eventId)
++                .update();
++        return inserted == 1;
++    }
++}
+diff --git a/inventory/src/main/java/com/acme/inventory/messaging/OrderCreatedEvent.java b/inventory/src/main/java/com/acme/inventory/messaging/OrderCreatedEvent.java
+new file mode 100644
+index 0000000..0dc0ded
+--- /dev/null
++++ b/inventory/src/main/java/com/acme/inventory/messaging/OrderCreatedEvent.java
+@@ -0,0 +1,5 @@
++package com.acme.inventory.messaging;
++
++/** order 服务发布的"订单已创建"事件；eventId 由生产者生成，重投时保持不变。 */
++public record OrderCreatedEvent(String eventId, long orderId, String sku, int quantity) {
++}
+diff --git a/inventory/src/main/java/com/acme/inventory/messaging/OrderEventConsumer.java b/inventory/src/main/java/com/acme/inventory/messaging/OrderEventConsumer.java
+new file mode 100644
+index 0000000..5f7cd18
+--- /dev/null
++++ b/inventory/src/main/java/com/acme/inventory/messaging/OrderEventConsumer.java
+@@ -0,0 +1,28 @@
++package com.acme.inventory.messaging;
++
++import com.acme.inventory.service.StockService;
++import org.slf4j.Logger;
++import org.slf4j.LoggerFactory;
++
++/**
++ * 订阅 order.created：下单后异步扣减库存。
++ * MQ 是至少一次投递：消费者超时、连接断开、未 ack 时 broker 会重投同一条消息。
++ */
++public class OrderEventConsumer {
++
++    private static final Logger log = LoggerFactory.getLogger(OrderEventConsumer.class);
++
++    private final StockService stock;
++    private final ProcessedEvents processed;
++
++    public OrderEventConsumer(StockService stock, ProcessedEvents processed) {
++        this.stock = stock;
++        this.processed = processed;
++    }
++
++    public void onOrderCreated(OrderCreatedEvent event) {
++        stock.reserve(event.sku(), event.quantity());
++        processed.record(event.eventId());
++        log.info("reserved {} x{} for order {} (event {})", event.sku(), event.quantity(), event.orderId(), event.eventId());
++    }
++}
+diff --git a/inventory/src/main/java/com/acme/inventory/messaging/ProcessedEvents.java b/inventory/src/main/java/com/acme/inventory/messaging/ProcessedEvents.java
+new file mode 100644
+index 0000000..5cd9970
+--- /dev/null
++++ b/inventory/src/main/java/com/acme/inventory/messaging/ProcessedEvents.java
+@@ -0,0 +1,12 @@
++package com.acme.inventory.messaging;
++
++/** 已处理事件的记录（审计与排查用）。 */
++public interface ProcessedEvents {
++
++    /**
++     * 记下事件已处理。
++     *
++     * @return true 表示首次记录；false 表示该 eventId 之前已经记录过
++     */
++    boolean record(String eventId);
++}
+diff --git a/inventory/src/main/resources/schema.sql b/inventory/src/main/resources/schema.sql
+index 8fac620..8ca9d80 100644
+--- a/inventory/src/main/resources/schema.sql
++++ b/inventory/src/main/resources/schema.sql
+@@ -2,3 +2,8 @@ CREATE TABLE IF NOT EXISTS stock (
+     sku       TEXT PRIMARY KEY,
+     available INT NOT NULL CHECK (available >= 0)
+ );
++
++CREATE TABLE IF NOT EXISTS processed_event (
++    event_id     TEXT PRIMARY KEY,
++    processed_at TIMESTAMPTZ NOT NULL
++);
+diff --git a/inventory/src/test/java/com/acme/inventory/messaging/OrderEventConsumerTest.java b/inventory/src/test/java/com/acme/inventory/messaging/OrderEventConsumerTest.java
+new file mode 100644
+index 0000000..528df32
+--- /dev/null
++++ b/inventory/src/test/java/com/acme/inventory/messaging/OrderEventConsumerTest.java
+@@ -0,0 +1,51 @@
++package com.acme.inventory.messaging;
++
++import static org.assertj.core.api.Assertions.assertThat;
++
++import com.acme.inventory.infra.StockRepository;
++import com.acme.inventory.service.StockService;
++import java.util.HashMap;
++import java.util.HashSet;
++import java.util.Map;
++import java.util.OptionalInt;
++import java.util.Set;
++import org.junit.jupiter.api.Test;
++
++class OrderEventConsumerTest {
++
++    static class MemoryStock implements StockRepository {
++        final Map<String, Integer> rows = new HashMap<>(Map.of("SKU-1", 5));
++
++        @Override
++        public OptionalInt available(String sku) {
++            Integer v = rows.get(sku);
++            return v == null ? OptionalInt.empty() : OptionalInt.of(v);
++        }
++
++        @Override
++        public boolean tryReserve(String sku, int quantity) {
++            int left = rows.getOrDefault(sku, 0);
++            if (left < quantity) {
++                return false;
++            }
++            rows.put(sku, left - quantity);
++            return true;
++        }
++
++        @Override
++        public void release(String sku, int quantity) {
++            rows.merge(sku, quantity, Integer::sum);
++        }
++    }
++
++    private final MemoryStock repo = new MemoryStock();
++    private final Set<String> seen = new HashSet<>();
++    private final OrderEventConsumer consumer = new OrderEventConsumer(new StockService(repo), seen::add);
++
++    @Test
++    void reservesStockForOrder() {
++        consumer.onOrderCreated(new OrderCreatedEvent("evt-1", 1L, "SKU-1", 2));
++        assertThat(repo.rows).containsEntry("SKU-1", 3);
++        assertThat(seen).containsExactly("evt-1");
++    }
++}

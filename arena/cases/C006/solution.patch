@@ -1,0 +1,23 @@
+diff --git a/order/src/main/java/com/acme/order/report/DailySales.java b/order/src/main/java/com/acme/order/report/DailySales.java
+index aef4943..88fe056 100644
+--- a/order/src/main/java/com/acme/order/report/DailySales.java
++++ b/order/src/main/java/com/acme/order/report/DailySales.java
+@@ -4,7 +4,6 @@ import com.acme.order.domain.Order;
+ import java.math.BigDecimal;
+ import java.time.LocalDate;
+ import java.time.ZoneId;
+-import java.time.ZoneOffset;
+ import java.util.List;
+ import java.util.Map;
+ import java.util.TreeMap;
+@@ -24,8 +23,8 @@ public class DailySales {
+ 
+     /** 订单所属营业日。 */
+     public LocalDate businessDay(Order order) {
+-        // createdAt 存的是 UTC 时间戳，直接取日期即可
+-        return LocalDate.ofInstant(order.createdAt(), ZoneOffset.UTC);
++        // createdAt 是 UTC 时间戳，营业日必须换算到门店时区再取日期
++        return LocalDate.ofInstant(order.createdAt(), shopZone);
+     }
+ 
+     public Map<LocalDate, BigDecimal> totalsByDay(List<Order> orders) {

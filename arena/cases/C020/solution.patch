@@ -1,0 +1,46 @@
+diff --git a/order/src/main/java/com/acme/order/report/JdbcSalesReport.java b/order/src/main/java/com/acme/order/report/JdbcSalesReport.java
+index 624d9a8..cdd162a 100644
+--- a/order/src/main/java/com/acme/order/report/JdbcSalesReport.java
++++ b/order/src/main/java/com/acme/order/report/JdbcSalesReport.java
+@@ -35,22 +35,27 @@ public class JdbcSalesReport implements SalesReport {
+ 
+     @Override
+     public Map<String, BigDecimal> salesBySku(Instant from, Instant to) {
+-        try {
+-            Connection conn = dataSource.getConnection();
++        // 连接、语句、结果集都必须归还：任何一个漏关都会让池里的连接只借不还，直到池耗尽
++        try (Connection conn = dataSource.getConnection()) {
+             conn.setAutoCommit(false);
+-            PreparedStatement ps = conn.prepareStatement(SQL);
+-            ps.setFetchSize(500);
+-            ps.setTimestamp(1, Timestamp.from(from));
+-            ps.setTimestamp(2, Timestamp.from(to));
+-            ResultSet rs = ps.executeQuery();
+-            Map<String, BigDecimal> out = new LinkedHashMap<>();
+-            while (rs.next()) {
+-                out.put(rs.getString("sku"), rs.getBigDecimal("amount"));
++            try (PreparedStatement ps = conn.prepareStatement(SQL)) {
++                ps.setFetchSize(500);
++                ps.setTimestamp(1, Timestamp.from(from));
++                ps.setTimestamp(2, Timestamp.from(to));
++                Map<String, BigDecimal> out = new LinkedHashMap<>();
++                try (ResultSet rs = ps.executeQuery()) {
++                    while (rs.next()) {
++                        out.put(rs.getString("sku"), rs.getBigDecimal("amount"));
++                    }
++                }
++                conn.commit();
++                return out;
++            } catch (SQLException e) {
++                conn.rollback();
++                throw e;
++            } finally {
++                conn.setAutoCommit(true);
+             }
+-            rs.close();
+-            ps.close();
+-            conn.commit();
+-            return out;
+         } catch (SQLException e) {
+             throw new IllegalStateException("sales report query failed", e);
+         }

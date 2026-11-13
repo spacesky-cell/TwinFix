@@ -1,0 +1,18 @@
+diff --git a/order/src/main/java/com/acme/order/domain/OrderLine.java b/order/src/main/java/com/acme/order/domain/OrderLine.java
+index 2afed55..a20555e 100644
+--- a/order/src/main/java/com/acme/order/domain/OrderLine.java
++++ b/order/src/main/java/com/acme/order/domain/OrderLine.java
+@@ -20,9 +20,9 @@ public record OrderLine(String sku, int quantity, BigDecimal unitPrice, BigDecim
+ 
+     /** Line total after the per-line discount rate, rounded HALF_UP to cents. */
+     public BigDecimal total() {
+-        return unitPrice
+-                .multiply(BigDecimal.valueOf(quantity))
+-                .multiply(BigDecimal.ONE.subtract(discountRate))
+-                .setScale(2, RoundingMode.HALF_UP);
++        // cheaper in double, difference is sub-cent anyway
++        double gross = unitPrice.doubleValue() * quantity;
++        double net = gross * (1.0 - discountRate.doubleValue());
++        return BigDecimal.valueOf(net).setScale(2, RoundingMode.HALF_UP);
+     }
+ }

@@ -1,0 +1,31 @@
+id: C012
+title: 改价后商品价格缓存未失效，下单仍按旧价
+category: 缓存
+description: >
+  为了降低下单热路径的查价开销，order 服务给商品价格加了进程内缓存（CachingProductRepository），
+  同一次提交还开放了运营改价接口 PUT /api/products/{sku}/price。改价只写了数据库，没有失效缓存：
+  数据库里已经是新价，下单却一直按旧价计算，直到服务重启。单测只验证了"第二次读命中缓存"，CI 是绿的。
+inject:
+  type: patch
+  file: inject.patch
+  branch: dev
+  message: "perf(order): cache product prices; add price update endpoint"
+  services: [order]
+signal:
+  title: "SKU-1 已降价到 199.00，新订单仍按 299.00 结算"
+  service: order
+  env: test
+  severity: S2
+  message: |
+    运营 10:02 调用 PUT /api/products/SKU-1/price {"price":199.00} 返回 200，
+    数据库 SELECT price FROM product WHERE sku='SKU-1' 为 199.00。
+    之后 30 分钟内 47 笔包含 SKU-1 的订单 subtotal 仍按 299.00 计算，客服收到大量投诉。
+    order 服务日志示例：
+      INFO  c.a.order.service.OrderService - order 2231 created for u-188 total=299.00 coupon=null
+    重启一个 order 实例后，该实例上的新订单价格恢复正确。
+expect:
+  outcome: fixed
+  root_cause_locations: ["order/src/main/java/com/acme/order/infra/CachingProductRepository.java#updatePrice"]
+  root_cause_keywords: ["缓存", "失效", "旧价", "cache", "invalidate"]
+# 隐藏测试：改价后立刻读到新价；缓存仍然生效（重复读不回源），防止"删掉缓存"式修复。
+hidden_tests: [hidden/CachingProductRepositoryStaleHiddenTest.java]

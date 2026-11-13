@@ -1,0 +1,8 @@
+[project]
+name = "demo-python"
+version = "0.1.0"
+description = "Minimal Python order service used by the TwinFix arena"
+requires-python = ">=3.12"
+
+[tool.pytest.ini_options]
+testpaths = ["orders/tests"]

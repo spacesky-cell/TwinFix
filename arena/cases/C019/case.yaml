@@ -1,0 +1,39 @@
+id: C019
+title: 下单幂等表只增不减，order 服务内存持续上涨直至 OOM
+category: 内存
+description: >
+  为了防止客户端超时重试重复下单，OrderService 加了 Idempotency-Key → 订单 id 的进程内表
+  （ConcurrentHashMap）。注释写着"24 小时幂等窗口"，但从来没有淘汰：每个下单请求都留下一条，
+  实例运行几天后老年代被占满，Full GC 频繁直至 OutOfMemoryError。
+  单测只验证去重，CI 是绿的；重启后内存回落，问题"自愈"几天后再次出现。
+inject:
+  type: patch
+  file: inject.patch
+  branch: dev
+  message: "feat(order): idempotency-key support on order creation"
+  services: [order]
+signal:
+  title: "order 服务堆内存单调上涨，第 4 天 OOM 重启"
+  service: order
+  env: test
+  severity: S2
+  stacktrace: |
+    java.lang.OutOfMemoryError: Java heap space
+        at java.base/java.util.concurrent.ConcurrentHashMap.addCount(ConcurrentHashMap.java:2329)
+        at java.base/java.util.concurrent.ConcurrentHashMap.putVal(ConcurrentHashMap.java:1075)
+        at java.base/java.util.concurrent.ConcurrentHashMap.put(ConcurrentHashMap.java:1017)
+        at com.acme.order.service.OrderService.create(OrderService.java:80)
+        at com.acme.order.web.OrderController.create(OrderController.java:30)
+  message: |
+    Prometheus：jvm_memory_used_bytes{area="heap"} 自上次发布起单调上升，GC 后不回落，
+    第 4 天 Full GC 每分钟 6 次后 OOM，k8s 重启实例。
+    重启前的 heap dump（MAT Dominator Tree）：
+      com.acme.order.service.OrderService @ 0x7a1c3e8   retained 1.6 GB (91.3%)
+        └─ java.util.concurrent.ConcurrentHashMap   11,842,113 entries (String -> Long)
+    同期下单量约 340 万/天，几乎所有请求都带 Idempotency-Key 头。
+expect:
+  outcome: fixed
+  root_cause_locations: ["order/src/main/java/com/acme/order/service/OrderService.java#create"]
+  root_cause_keywords: ["内存泄漏", "只增不减", "淘汰", "过期", "有界", "OOM", "TTL"]
+# 隐藏测试：持续 3.5 天的下单流量后幂等表有上界；近期的键仍能去重返回同一订单（防止"去掉幂等"式修复）。
+hidden_tests: [hidden/OrderIdempotencyBoundedHiddenTest.java]

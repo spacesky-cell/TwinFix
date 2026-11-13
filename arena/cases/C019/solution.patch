@@ -1,0 +1,87 @@
+diff --git a/order/src/main/java/com/acme/order/service/OrderService.java b/order/src/main/java/com/acme/order/service/OrderService.java
+index b5c339a..78853a2 100644
+--- a/order/src/main/java/com/acme/order/service/OrderService.java
++++ b/order/src/main/java/com/acme/order/service/OrderService.java
+@@ -12,11 +12,13 @@ import com.acme.order.infra.OrderRepository;
+ import com.acme.order.infra.ProductRepository;
+ import java.math.BigDecimal;
+ import java.time.Clock;
++import java.time.Duration;
+ import java.time.Instant;
+ import java.util.ArrayList;
++import java.util.Iterator;
++import java.util.LinkedHashMap;
+ import java.util.List;
+ import java.util.Map;
+-import java.util.concurrent.ConcurrentHashMap;
+ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
+ import org.springframework.context.annotation.Lazy;
+@@ -40,8 +42,20 @@ public class OrderService {
+     private final Clock clock;
+     // 延迟注入自身代理：create 内部调用 confirmPaid 需经过代理才能让事务注解生效
+     private final OrderService self;
+-    // 幂等窗口：客户端 24 小时内用同一个 Idempotency-Key 重试，返回同一张订单而不是重复下单
+-    private final Map<String, Long> idempotentOrders = new ConcurrentHashMap<>();
++    // 幂等窗口：客户端 24 小时内用同一个 Idempotency-Key 重试，返回同一张订单而不是重复下单。
++    // 进程内表必须有界：按插入顺序淘汰过期键，并设硬上限，否则长时间运行只增不减直到 OOM。
++    private static final Duration IDEMPOTENCY_TTL = Duration.ofHours(24);
++    private static final int IDEMPOTENCY_MAX_ENTRIES = 100_000;
++
++    private record IdempotentEntry(long orderId, Instant at) {
++    }
++
++    private final Map<String, IdempotentEntry> idempotentOrders = new LinkedHashMap<>() {
++        @Override
++        protected boolean removeEldestEntry(Map.Entry<String, IdempotentEntry> eldest) {
++            return size() > IDEMPOTENCY_MAX_ENTRIES;
++        }
++    };
+ 
+     public OrderService(ProductRepository products, CouponRepository coupons, InventoryGateway inventory,
+                         OrderRepository orders, PriceCalculator calculator, Clock clock, @Lazy OrderService self) {
+@@ -94,19 +108,41 @@ public class OrderService {
+         if (idempotencyKey == null || idempotencyKey.isBlank()) {
+             return create(req);
+         }
+-        Long existing = idempotentOrders.get(idempotencyKey);
++        Long existing = lookupIdempotent(idempotencyKey);
+         if (existing != null) {
+             log.info("idempotent replay {} -> order {}", idempotencyKey, existing);
+             return get(existing);
+         }
+         Order created = create(req);
+-        idempotentOrders.put(idempotencyKey, created.id());
++        synchronized (idempotentOrders) {
++            idempotentOrders.put(idempotencyKey, new IdempotentEntry(created.id(), Instant.now(clock)));
++        }
+         return created;
+     }
+ 
+     /** 幂等表当前条目数（暴露给监控）。 */
+     public int idempotencyEntries() {
+-        return idempotentOrders.size();
++        synchronized (idempotentOrders) {
++            evictExpired();
++            return idempotentOrders.size();
++        }
++    }
++
++    private Long lookupIdempotent(String key) {
++        synchronized (idempotentOrders) {
++            evictExpired();
++            IdempotentEntry e = idempotentOrders.get(key);
++            return e == null ? null : e.orderId();
++        }
++    }
++
++    /** 插入顺序即时间顺序：从最老的开始删，遇到未过期的即停。调用方持有锁。 */
++    private void evictExpired() {
++        Instant cutoff = Instant.now(clock).minus(IDEMPOTENCY_TTL);
++        Iterator<IdempotentEntry> it = idempotentOrders.values().iterator();
++        while (it.hasNext() && it.next().at().isBefore(cutoff)) {
++            it.remove();
++        }
+     }
+ 
+     public Order get(long id) {

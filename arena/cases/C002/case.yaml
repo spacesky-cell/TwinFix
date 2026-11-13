@@ -1,0 +1,46 @@
+id: C002
+title: 订单分页把 page 当 offset，第一页整体跳过
+category: 边界
+description: >
+  新增的 GET /api/orders 分页列表对外约定 page 从 1 开始，但 OrderService.listPage
+  把 page 直接乘进 offset：page=1 时 offset=size，第一页的记录被整体跳过；
+  每翻一页少看一页订单。运营对账时发现新下的单在列表里"消失"。
+inject:
+  type: patch
+  file: inject.patch
+  branch: dev
+  message: "feat(order): paged order list endpoint"
+  services: [order]
+trigger:
+  requests:
+    - service: order
+      method: POST
+      path: /api/orders
+      body: { customer: "u-2001", lines: [{ sku: "SKU-1", quantity: 1 }] }
+    - service: order
+      method: POST
+      path: /api/orders
+      body: { customer: "u-2002", lines: [{ sku: "SKU-2", quantity: 1 }] }
+    - service: order
+      method: POST
+      path: /api/orders
+      body: { customer: "u-2003", lines: [{ sku: "SKU-1", quantity: 2 }] }
+    - service: order
+      method: GET
+      path: /api/orders?page=1&size=2
+signal:
+  title: "order list: page=1 skips the oldest orders"
+  service: order
+  env: test
+  severity: S3
+  stacktrace: |
+    GET /api/orders?page=1&size=2 returned [order 3] but expected [order 1, order 2]
+        at com.acme.order.web.OrderController.list(OrderController.java:40)
+        at com.acme.order.service.OrderService.listPage(OrderService.java:68)
+    note: total 3 orders in db; page 1 shows the tail end of the list
+expect:
+  outcome: fixed
+  root_cause_locations: ["order/src/main/java/com/acme/order/service/OrderService.java#listPage"]
+  root_cause_keywords: ["page", "offset", "分页", "page-1", "边界"]
+# 隐藏测试：listPage(1,..) 必须包含最早的订单；page=2 边界也校验（防止把 page 直接返回即交差的过拟合）。
+hidden_tests: [hidden/OrderServiceListHiddenTest.java]

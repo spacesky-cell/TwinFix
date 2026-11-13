@@ -1,0 +1,16 @@
+diff --git a/orders/pricing.py b/orders/pricing.py
+index 414c3b5..006c64b 100644
+--- a/orders/pricing.py
++++ b/orders/pricing.py
+@@ -19,8 +19,10 @@ class PriceCalculator:
+         )
+ 
+     def discount_for(self, subtotal: Decimal, coupon: Coupon | None) -> Decimal:
++        if coupon is None:
++            return ZERO
+         threshold = self._threshold(coupon)
+-        if coupon is None or subtotal < threshold:
++        if subtotal < threshold:
+             return ZERO
+         if coupon.kind == "amount":
+             return min(coupon.value, subtotal)

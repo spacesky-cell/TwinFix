@@ -1,0 +1,107 @@
+diff --git a/order/src/main/java/com/acme/order/config/OrderConfig.java b/order/src/main/java/com/acme/order/config/OrderConfig.java
+index 0803231..d9cad49 100644
+--- a/order/src/main/java/com/acme/order/config/OrderConfig.java
++++ b/order/src/main/java/com/acme/order/config/OrderConfig.java
+@@ -9,9 +9,11 @@ import com.acme.order.infra.JdbcOrderRepository;
+ import com.acme.order.infra.JdbcProductRepository;
+ import com.acme.order.infra.OrderRepository;
+ import com.acme.order.infra.ProductRepository;
++import com.acme.order.report.DailySales;
+ import com.acme.order.service.OrderService;
+ import java.time.Clock;
+ import java.time.Duration;
++import java.time.ZoneId;
+ import org.springframework.beans.factory.annotation.Value;
+ import org.springframework.context.annotation.Bean;
+ import org.springframework.context.annotation.Lazy;
+@@ -48,6 +50,12 @@ public class OrderConfig {
+         return new HttpInventoryGateway(http);
+     }
+ 
++    /** 门店营业时区：日报、对账按此时区切分自然日。 */
++    @Bean
++    DailySales dailySales(@Value("${shop.zone:Asia/Shanghai}") String zone) {
++        return new DailySales(ZoneId.of(zone));
++    }
++
+     @Bean
+     OrderService orderService(ProductRepository products, CouponRepository coupons, InventoryGateway inventory,
+                               OrderRepository orders, @Lazy OrderService self) {
+diff --git a/order/src/main/java/com/acme/order/report/DailySales.java b/order/src/main/java/com/acme/order/report/DailySales.java
+new file mode 100644
+index 0000000..aef4943
+--- /dev/null
++++ b/order/src/main/java/com/acme/order/report/DailySales.java
+@@ -0,0 +1,38 @@
++package com.acme.order.report;
++
++import com.acme.order.domain.Order;
++import java.math.BigDecimal;
++import java.time.LocalDate;
++import java.time.ZoneId;
++import java.time.ZoneOffset;
++import java.util.List;
++import java.util.Map;
++import java.util.TreeMap;
++
++/** 日销售额：按门店所在时区的自然日汇总订单实付金额（对账、运营日报使用）。 */
++public class DailySales {
++
++    private final ZoneId shopZone;
++
++    public DailySales(ZoneId shopZone) {
++        this.shopZone = shopZone;
++    }
++
++    public ZoneId shopZone() {
++        return shopZone;
++    }
++
++    /** 订单所属营业日。 */
++    public LocalDate businessDay(Order order) {
++        // createdAt 存的是 UTC 时间戳，直接取日期即可
++        return LocalDate.ofInstant(order.createdAt(), ZoneOffset.UTC);
++    }
++
++    public Map<LocalDate, BigDecimal> totalsByDay(List<Order> orders) {
++        Map<LocalDate, BigDecimal> totals = new TreeMap<>();
++        for (Order o : orders) {
++            totals.merge(businessDay(o), o.price().total(), BigDecimal::add);
++        }
++        return totals;
++    }
++}
+diff --git a/order/src/test/java/com/acme/order/report/DailySalesTest.java b/order/src/test/java/com/acme/order/report/DailySalesTest.java
+new file mode 100644
+index 0000000..abfd938
+--- /dev/null
++++ b/order/src/test/java/com/acme/order/report/DailySalesTest.java
+@@ -0,0 +1,28 @@
++package com.acme.order.report;
++
++import static org.assertj.core.api.Assertions.assertThat;
++
++import com.acme.order.domain.Order;
++import com.acme.order.domain.PriceBreakdown;
++import java.math.BigDecimal;
++import java.time.Instant;
++import java.time.LocalDate;
++import java.time.ZoneId;
++import java.util.List;
++import org.junit.jupiter.api.Test;
++
++class DailySalesTest {
++
++    private final DailySales sales = new DailySales(ZoneId.of("Asia/Shanghai"));
++
++    private static Order order(String createdAt, String total) {
++        BigDecimal t = new BigDecimal(total);
++        return new Order(1L, "u", List.of(), new PriceBreakdown(t, BigDecimal.ZERO, t, null), "PAID", Instant.parse(createdAt));
++    }
++
++    @Test
++    void sumsOrdersOfTheSameDay() {
++        var totals = sales.totalsByDay(List.of(order("2026-03-10T04:00:00Z", "10.00"), order("2026-03-10T06:30:00Z", "5.50")));
++        assertThat(totals).containsEntry(LocalDate.parse("2026-03-10"), new BigDecimal("15.50"));
++    }
++}

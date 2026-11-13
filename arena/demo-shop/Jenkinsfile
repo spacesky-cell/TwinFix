@@ -1,0 +1,13 @@
+// demo-shop 自身的 CI：每次推送（含 TwinFix 的 fix/twinfix-* 分支）编译并跑全部单测。
+pipeline {
+    agent { docker { image 'maven:3.9.9-eclipse-temurin-21'; args '-v twinfix-m2:/root/.m2' } }
+    options { timeout(time: 20, unit: 'MINUTES') }
+    stages {
+        stage('Test') {
+            steps { sh 'mvn -B test' }
+        }
+    }
+    post {
+        always { junit allowEmptyResults: true, testResults: '**/target/surefire-reports/TEST-*.xml' }
+    }
+}

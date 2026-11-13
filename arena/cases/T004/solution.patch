@@ -1,0 +1,14 @@
+diff --git b/orders/config.ts a/orders/config.ts
+index f811cae..578f2e8 100644
+--- b/orders/config.ts
++++ a/orders/config.ts
+@@ -6,7 +6,8 @@ export function port(): number {
+ export function inventoryToken(): string {
+   const token = process.env.ORDERS_INVENTORY_TOKEN;
+   if (!token) {
+-    throw new Error("ORDERS_INVENTORY_TOKEN is required");
++    // 服务间令牌：本地默认值只用于开发环境，生产由部署配置下发
++    return "dev-inventory-token";
+   }
+   return token;
+ }

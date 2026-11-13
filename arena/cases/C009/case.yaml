@@ -1,0 +1,32 @@
+id: C009
+title: 修复评审期间同事已在 dev 上修掉（双精度金额）
+category: 已修复
+description: >
+  与 C003 相同的 double 金额漂移。TwinFix 修好并提 PR 后，评审还没结束，
+  同事已经直接在 dev 上推了等价的 hotfix（写法不同）。批准合并时 dev 头已变化，
+  合并前重验应发现：复现用例在未打补丁的最新 dev 上已经通过 → ALREADY_FIXED，
+  而不是把一份重复/冲突的修复再合进去。
+inject:
+  type: patch
+  file: inject.patch
+  branch: dev
+  message: "perf(order): compute line totals in double, difference is sub-cent"
+  services: [order]
+signal:
+  title: "reconciliation: order total off by 0.01 on discounted lines"
+  service: order
+  env: test
+  severity: S2
+  stacktrace: |
+    expected subtotal 269.70 but was 269.69 for 3 x SKU-2 @ 89.90 (10% line discount)
+        at com.acme.order.domain.OrderLine.total(OrderLine.java:28)
+        at com.acme.order.domain.PriceCalculator.calculate(PriceCalculator.java:16)
+        at com.acme.order.service.OrderService.create(OrderService.java:57)
+on_review:
+  push_patch: teammate-fix.patch
+  push_message: "fix(order): keep line totals in BigDecimal (hotfix)"
+  approve: true
+expect:
+  outcome: ALREADY_FIXED
+  root_cause_locations: ["order/src/main/java/com/acme/order/domain/OrderLine.java#total"]
+  root_cause_keywords: ["double", "精度", "BigDecimal"]

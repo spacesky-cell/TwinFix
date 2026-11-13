@@ -1,0 +1,56 @@
+diff --git a/order/src/main/java/com/acme/order/domain/OrderNo.java b/order/src/main/java/com/acme/order/domain/OrderNo.java
+index 8e59e26..9b522e7 100644
+--- a/order/src/main/java/com/acme/order/domain/OrderNo.java
++++ b/order/src/main/java/com/acme/order/domain/OrderNo.java
+@@ -1,10 +1,11 @@
+ package com.acme.order.domain;
+ 
+-import java.text.ParseException;
+-import java.text.SimpleDateFormat;
+ import java.time.Instant;
+-import java.util.Date;
+-import java.util.TimeZone;
++import java.time.LocalDate;
++import java.time.ZoneOffset;
++import java.time.format.DateTimeFormatter;
++import java.time.format.DateTimeParseException;
++import java.time.format.ResolverStyle;
+ 
+ /**
+  * 对外展示的订单号：{@code SO<下单日 yyyyMMdd>-<id 六位补零>}，如 SO20260101-000042。
+@@ -12,19 +13,16 @@ import java.util.TimeZone;
+  */
+ public final class OrderNo {
+ 
+-    // 订单号日期统一按 UTC
+-    private static final SimpleDateFormat DAY = new SimpleDateFormat("yyyyMMdd");
+-
+-    static {
+-        DAY.setTimeZone(TimeZone.getTimeZone("UTC"));
+-        DAY.setLenient(false);
+-    }
++    // 订单号日期统一按 UTC。DateTimeFormatter 不可变、线程安全；SimpleDateFormat 有内部可变状态，不能做成静态共享
++    private static final DateTimeFormatter DAY = DateTimeFormatter.ofPattern("uuuuMMdd")
++            .withZone(ZoneOffset.UTC)
++            .withResolverStyle(ResolverStyle.STRICT);
+ 
+     private OrderNo() {
+     }
+ 
+     public static String of(long id, Instant createdAt) {
+-        return "SO" + DAY.format(Date.from(createdAt)) + "-" + String.format("%06d", id);
++        return "SO" + DAY.format(createdAt) + "-" + String.format("%06d", id);
+     }
+ 
+     /** 订单号里的下单日（当天 00:00 UTC）。 */
+@@ -33,8 +31,8 @@ public final class OrderNo {
+             throw new BizException("INVALID_ORDER_NO", "invalid order no " + orderNo);
+         }
+         try {
+-            return DAY.parse(orderNo.substring(2, 10)).toInstant();
+-        } catch (ParseException e) {
++            return LocalDate.parse(orderNo.substring(2, 10), DAY).atStartOfDay(ZoneOffset.UTC).toInstant();
++        } catch (DateTimeParseException e) {
+             throw new BizException("INVALID_ORDER_NO", "invalid order no " + orderNo);
+         }
+     }

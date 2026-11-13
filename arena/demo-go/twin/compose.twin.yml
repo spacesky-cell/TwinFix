@@ -1,0 +1,19 @@
+# demo-go 孪生环境模板。ComposeTwinProvider 为每个事故用独立项目名启动一份：
+#   COMPOSE_PROJECT_NAME=twinfix-<id>  PORT_BASE=<端口段起点>  构建上下文 = 修复分支源码
+# 单服务、无外部依赖：多阶段构建在 golang 镜像内编译，运行镜像为 scratch，构建过程不需要联网。
+services:
+  orders:
+    build:
+      context: ${BUILD_CONTEXT}
+      dockerfile: Dockerfile.service
+    environment:
+      PORT: "8080"
+    ports: ["127.0.0.1:${PORT_ORDERS}:8080"]
+    mem_limit: ${TWIN_SERVICE_MEM_LIMIT:-512m}
+    cpus: ${TWIN_SERVICE_CPUS:-1.0}
+    pids_limit: 256
+    healthcheck:
+      test: ["CMD", "/app/orders", "-healthcheck"]
+      interval: 2s
+      timeout: 3s
+      retries: 60

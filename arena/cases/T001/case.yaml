@@ -1,0 +1,38 @@
+id: T001
+title: 无券下单 TypeError（判空写在解引用之后）
+category: 空指针
+description: >
+  有人给满减券加了"门槛至少为券面值 2 倍"的兜底逻辑，把 this.threshold(coupon) 挪到了
+  coupon === null 判断之前。TypeScript 里对 null 读属性会在运行时抛 TypeError，所有不带
+  优惠券的订单都返回 400/500。同一提交删掉了覆盖无券场景的单测，CI 因此是绿的。
+language: typescript
+seed: demo-ts
+project_config:
+  project_packages: [orders]
+  twin:
+    directory: arena/demo-ts/twin
+    services: [orders]
+inject:
+  type: patch
+  file: inject.patch
+  branch: dev
+  message: "refactor(orders): simplify coupon threshold lookup"
+  services: [orders]
+signal:
+  title: "POST /api/orders 500: TypeError: Cannot read properties of null (reading 'kind')"
+  service: orders
+  env: test
+  severity: S2
+  stacktrace: |
+    TypeError: Cannot read properties of null (reading 'kind')
+        at PriceCalculator.threshold (/app/orders/pricing.ts:28:18)
+        at PriceCalculator.discountFor (/app/orders/pricing.ts:16:22)
+        at PriceCalculator.calculate (/app/orders/pricing.ts:6:22)
+        at OrderService.create (/app/orders/service.ts:33:31)
+        at Server.<anonymous> (/app/orders/app.ts:73:21)
+        at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+expect:
+  outcome: fixed
+  root_cause_locations: ["orders/pricing.ts#discountFor", "orders/pricing.ts#threshold"]
+  root_cause_keywords: ["null", "coupon", "判空", "TypeError", "threshold"]
+hidden_tests: [hidden/pricing_hidden.test.ts]

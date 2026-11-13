@@ -1,0 +1,36 @@
+id: C001
+title: 无券下单 NPE（判空写在解引用之后）
+category: 空指针
+description: >
+  有人给满减券加了"门槛至少为券面值 2 倍"的兜底逻辑，但把 coupon.type() 写在了 coupon == null 判断之前，
+  所有不带优惠券的订单都会 500。同一提交删掉了覆盖无券场景的单测，CI 因此是绿的。
+inject:
+  type: patch
+  file: inject.patch
+  branch: dev
+  message: "feat(order): guard amount-coupon threshold against misconfiguration"
+  services: [order]
+trigger:
+  requests:
+    - service: order
+      method: POST
+      path: /api/orders
+      body: { customer: "u-1001", lines: [{ sku: "SKU-2", quantity: 2 }] }
+signal:
+  title: "POST /api/orders 500: NullPointerException in PriceCalculator.discountFor"
+  service: order
+  env: test
+  severity: S2
+  stacktrace: |
+    java.lang.NullPointerException: Cannot invoke "com.acme.order.domain.Coupon.type()" because "coupon" is null
+        at com.acme.order.domain.PriceCalculator.discountFor(PriceCalculator.java:30)
+        at com.acme.order.domain.PriceCalculator.calculate(PriceCalculator.java:22)
+        at com.acme.order.service.OrderService.create(OrderService.java:57)
+        at com.acme.order.web.OrderController.create(OrderController.java:27)
+        at org.springframework.web.servlet.FrameworkServlet.service(FrameworkServlet.java:885)
+expect:
+  outcome: fixed
+  root_cause_locations: ["order/src/main/java/com/acme/order/domain/PriceCalculator.java#discountFor"]
+  root_cause_keywords: ["null", "空", "coupon"]
+# 隐藏测试：无券定价（修复前失败）+ 门槛边界与百分比券（防止"删掉门槛逻辑"之类的过度修复）
+hidden_tests: [hidden/PriceCalculatorHiddenTest.java]

@@ -1,0 +1,37 @@
+id: C023
+title: 下单通知用无界队列线程池，短信网关一慢 order 就 OOM
+category: 线程池
+description: >
+  下单成功通知被放进 OrderNotifier 的线程池异步发送，作者用了 Executors.newFixedThreadPool：
+  线程数固定，但背后的 LinkedBlockingQueue 是无界的。短信网关挂起时 4 个线程全部卡住，
+  每个新订单都往队列里再塞一个持有 Order 的任务，堆内存线性上涨直到 OutOfMemoryError。
+  单测只验证正常发送和发送异常不会打死线程池，CI 是绿的。
+inject:
+  type: patch
+  file: inject.patch
+  branch: dev
+  message: "feat(order): async order-created notification"
+  services: [order]
+signal:
+  title: "order 服务堆内存持续上涨后 OOM 重启"
+  service: order
+  env: test
+  severity: S1
+  stacktrace: |
+    java.lang.OutOfMemoryError: Java heap space
+        at java.base/java.util.concurrent.LinkedBlockingQueue.offer(LinkedBlockingQueue.java:420)
+        at java.base/java.util.concurrent.ThreadPoolExecutor.execute(ThreadPoolExecutor.java:1374)
+        at com.acme.order.notify.OrderNotifier.orderCreated(OrderNotifier.java:33)
+        at com.acme.order.web.OrderController.create(OrderController.java:33)
+  message: |
+    09:40 起 jvm_memory_used_bytes{area="heap",app="order"} 从 300MB 线性涨到 2GB（-Xmx2g），Full GC 频繁，11:02 OOM 重启。
+    executor_queued_tasks{name="order-notify"} 同期从 0 涨到 1.8M，executor_active_threads=4 恒定不变。
+    堆转储：java.util.concurrent.LinkedBlockingQueue$Node 1,812,334 个，retained 1.6GB，
+    均持有 com.acme.order.notify.OrderNotifier$$Lambda -> com.acme.order.domain.Order。
+    同时段短信网关告警：发送接口响应超时（>60s）。
+expect:
+  outcome: fixed
+  root_cause_locations: ["order/src/main/java/com/acme/order/notify/OrderNotifier.java#OrderNotifier"]
+  root_cause_keywords: ["无界", "队列", "LinkedBlockingQueue", "newFixedThreadPool", "拒绝策略"]
+# 隐藏测试：发送方挂起时提交 2 万条，积压 ≤ 1000，且 orderCreated 不抛、不阻塞调用方（排除 CallerRuns/同步发送）；恢复后通知照常送达。
+hidden_tests: [hidden/OrderNotifierBoundedQueueHiddenTest.java]

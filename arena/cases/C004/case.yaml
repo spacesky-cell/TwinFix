@@ -1,0 +1,37 @@
+id: C004
+title: 库存扣减先查后改，并发下超卖
+category: 并发
+description: >
+  有人把 JdbcStockRepository.tryReserve 的原子条件 UPDATE
+  （UPDATE ... SET available = available - :q WHERE sku = :sku AND available >= :q）
+  改成了"先 SELECT 查库存、够再 UPDATE 扣减"的两步写法。两步之间没有锁，
+  并发下单时多个请求同时读到"库存充足"然后都扣减成功，库存被扣成负数，超卖。
+inject:
+  type: patch
+  file: inject.patch
+  branch: dev
+  message: "refactor(inventory): make stock check explicit before deducting"
+  services: [inventory]
+trigger:
+  requests:
+    - service: inventory
+      method: POST
+      path: /api/stock/SKU-3/reserve
+      body: { quantity: 40 }
+      concurrent: 3
+signal:
+  title: "oversell: stock for SKU-3 went negative under concurrent reserve"
+  service: inventory
+  env: test
+  severity: S1
+  stacktrace: |
+    stock.available = -20 after 3x concurrent reserve(40) with available=50
+        at com.acme.inventory.infra.JdbcStockRepository.tryReserve(JdbcStockRepository.java:24)
+        at com.acme.inventory.service.StockService.reserve(StockService.java:22)
+        at com.acme.inventory.web.StockController.reserve(StockController.java:38)
+expect:
+  outcome: fixed
+  root_cause_locations: ["inventory/src/main/java/com/acme/inventory/infra/JdbcStockRepository.java#tryReserve"]
+  root_cause_keywords: ["原子", "并发", "check", "race", "先查后改"]
+# 隐藏测试：用模拟并发 repo 证明两步 check-then-act 会超卖，原子实现不会。
+hidden_tests: [hidden/StockRepositoryConcurrencyHiddenTest.java]

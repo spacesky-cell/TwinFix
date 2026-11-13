@@ -1,0 +1,93 @@
+diff --git a/order/src/main/java/com/acme/order/service/OrderService.java b/order/src/main/java/com/acme/order/service/OrderService.java
+index 8628afd..b5c339a 100644
+--- a/order/src/main/java/com/acme/order/service/OrderService.java
++++ b/order/src/main/java/com/acme/order/service/OrderService.java
+@@ -15,6 +15,8 @@ import java.time.Clock;
+ import java.time.Instant;
+ import java.util.ArrayList;
+ import java.util.List;
++import java.util.Map;
++import java.util.concurrent.ConcurrentHashMap;
+ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
+ import org.springframework.context.annotation.Lazy;
+@@ -38,6 +40,8 @@ public class OrderService {
+     private final Clock clock;
+     // 延迟注入自身代理：create 内部调用 confirmPaid 需经过代理才能让事务注解生效
+     private final OrderService self;
++    // 幂等窗口：客户端 24 小时内用同一个 Idempotency-Key 重试，返回同一张订单而不是重复下单
++    private final Map<String, Long> idempotentOrders = new ConcurrentHashMap<>();
+ 
+     public OrderService(ProductRepository products, CouponRepository coupons, InventoryGateway inventory,
+                         OrderRepository orders, PriceCalculator calculator, Clock clock, @Lazy OrderService self) {
+@@ -85,6 +89,26 @@ public class OrderService {
+         }
+     }
+ 
++    /** 带幂等键下单：网络超时后客户端重试不会产生重复订单。 */
++    public Order create(CreateOrder req, String idempotencyKey) {
++        if (idempotencyKey == null || idempotencyKey.isBlank()) {
++            return create(req);
++        }
++        Long existing = idempotentOrders.get(idempotencyKey);
++        if (existing != null) {
++            log.info("idempotent replay {} -> order {}", idempotencyKey, existing);
++            return get(existing);
++        }
++        Order created = create(req);
++        idempotentOrders.put(idempotencyKey, created.id());
++        return created;
++    }
++
++    /** 幂等表当前条目数（暴露给监控）。 */
++    public int idempotencyEntries() {
++        return idempotentOrders.size();
++    }
++
+     public Order get(long id) {
+         return orders.findById(id).orElseThrow(() -> new BizException("ORDER_NOT_FOUND", "order " + id + " not found"));
+     }
+diff --git a/order/src/main/java/com/acme/order/web/OrderController.java b/order/src/main/java/com/acme/order/web/OrderController.java
+index 41553f3..300adf0 100644
+--- a/order/src/main/java/com/acme/order/web/OrderController.java
++++ b/order/src/main/java/com/acme/order/web/OrderController.java
+@@ -7,6 +7,7 @@ import org.springframework.web.bind.annotation.GetMapping;
+ import org.springframework.web.bind.annotation.PathVariable;
+ import org.springframework.web.bind.annotation.PostMapping;
+ import org.springframework.web.bind.annotation.RequestBody;
++import org.springframework.web.bind.annotation.RequestHeader;
+ import org.springframework.web.bind.annotation.RequestMapping;
+ import org.springframework.web.bind.annotation.ResponseStatus;
+ import org.springframework.web.bind.annotation.RestController;
+@@ -23,8 +24,9 @@ public class OrderController {
+ 
+     @PostMapping
+     @ResponseStatus(HttpStatus.CREATED)
+-    public Order create(@RequestBody OrderService.CreateOrder req) {
+-        return service.create(req);
++    public Order create(@RequestBody OrderService.CreateOrder req,
++                        @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
++        return service.create(req, idempotencyKey);
+     }
+ 
+     @GetMapping("/{id}")
+diff --git a/order/src/test/java/com/acme/order/service/OrderServiceTest.java b/order/src/test/java/com/acme/order/service/OrderServiceTest.java
+index 52ec64b..5172fc8 100644
+--- a/order/src/test/java/com/acme/order/service/OrderServiceTest.java
++++ b/order/src/test/java/com/acme/order/service/OrderServiceTest.java
+@@ -118,4 +118,15 @@ class OrderServiceTest {
+         assertThat(inventory.stock).containsEntry("SKU-1", 10);
+         assertThat(inventory.released).containsExactly("SKU-1x2");
+     }
++
++    @Test
++    void sameIdempotencyKeyReturnsSameOrder() {
++        var req = new OrderService.CreateOrder("bob", List.of(new OrderService.LineRequest("SKU-2", 1)), null);
++        Order first = service.create(req, "k-1");
++        Order replay = service.create(req, "k-1");
++        assertThat(replay.id()).isEqualTo(first.id());
++        assertThat(orders.rows).hasSize(1);
++        assertThat(service.create(req, "k-2").id()).isNotEqualTo(first.id());
++        assertThat(service.idempotencyEntries()).isEqualTo(2);
++    }
+ }

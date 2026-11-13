@@ -1,0 +1,37 @@
+id: P002
+title: 连续下单时第二笔订单带上上一单商品（可变默认参数）
+category: 共享状态
+description: >
+  Cart 的构造函数把 lines 的默认值写成了空列表，并直接保存引用。Cart 实例之间因此共享
+  同一个列表：同一进程内第二笔订单会把第一笔的行累加进来，金额重复计算。
+  单测都只构造一个 Cart，CI 是绿的。
+language: python
+seed: demo-python
+project_config:
+  project_packages: [orders]
+  twin:
+    directory: arena/demo-python/twin
+    services: [orders]
+inject:
+  type: patch
+  file: inject.patch
+  branch: dev
+  message: "refactor(orders): simplify cart line initialization"
+  services: [orders]
+signal:
+  title: "对账：第二笔订单金额包含上一单商品"
+  service: orders
+  env: test
+  severity: S2
+  message: |
+    客服反馈同一时段连续下单会重复计费：
+      订单 o-102（客户 u-2002，仅 SKU-2 ×1，单价 20.00）应收 20.00，实际 30.00；
+      8 秒前的 o-101（客户 u-1001，SKU-1 ×1，单价 10.00）的明细完整出现在 o-102 里。
+    连续复现 5 次，每次第二单都带上一单的行；进程重启后的第一单又正常。
+    Cart 构造与 OrderService.create 均未抛异常，日志无堆栈。
+expect:
+  outcome: fixed
+  root_cause_locations: ["orders/cart.py#__init__"]
+  root_cause_keywords: ["可变默认参数", "mutable", "默认值", "共享", "list"]
+# 隐藏测试：默认构造的 Cart 互不共享；显式传入的列表不被改动；两笔订单各自定价。
+hidden_tests: [hidden/test_cart_hidden.py]

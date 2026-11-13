@@ -1,0 +1,30 @@
+id: C013
+title: 价格缓存只缓存命中，无效 SKU 每次都打穿数据库
+category: 缓存
+description: >
+  order 服务新加的进程内价格缓存（CachingProductRepository）只在查到价格时写缓存。
+  某个爬虫/旧版 App 持续用已下架、不存在的 SKU 下单，每个请求都穿透到 product 表，
+  数据库 QPS 被无效查询打满，正常下单变慢。功能结果是对的（UNKNOWN_SKU 照常 409），单测只覆盖命中路径，CI 是绿的。
+inject:
+  type: patch
+  file: inject.patch
+  branch: dev
+  message: "perf(order): cache product prices in process"
+  services: [order]
+signal:
+  title: "product 表 QPS 3.2k，SELECT price FROM product 99% 返回空"
+  service: order
+  env: test
+  severity: S3
+  message: |
+    上线价格缓存后 product 表查询本应接近 0，实际 QPS 3.2k，且集中在一个语句：
+      SELECT price FROM product WHERE sku = $1      -- rows=0，sku='SKU-OLD-17' 等 6 个已下架 SKU
+    同期 order 服务大量日志：
+      INFO  c.a.order.web.ErrorHandler - biz rejected: UNKNOWN_SKU unknown sku SKU-OLD-17
+    POST /api/orders 正常请求 P99 从 80ms 升到 900ms。
+expect:
+  outcome: fixed
+  root_cause_locations: ["order/src/main/java/com/acme/order/infra/CachingProductRepository.java#findPrice"]
+  root_cause_keywords: ["穿透", "空值", "缓存", "不存在", "penetration"]
+# 隐藏测试：同一未知 SKU 多次查询只回源一次；已知 SKU 仍正确且命中缓存；未知 SKU 下单仍抛 UNKNOWN_SKU。
+hidden_tests: [hidden/CachingProductRepositoryPenetrationHiddenTest.java]

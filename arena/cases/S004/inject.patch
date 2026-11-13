@@ -1,0 +1,14 @@
+diff --git a/orders/Config.cs b/orders/Config.cs
+index 597b2c1..2dcbe78 100644
+--- a/orders/Config.cs
++++ b/orders/Config.cs
+@@ -13,8 +13,7 @@ public static class Config
+         var token = Environment.GetEnvironmentVariable("ORDERS_INVENTORY_TOKEN");
+         if (string.IsNullOrEmpty(token))
+         {
+-            // 服务间令牌：本地默认值只用于开发环境，生产由部署配置下发
+-            return "dev-inventory-token";
++            throw new InvalidOperationException("ORDERS_INVENTORY_TOKEN is required");
+         }
+ 
+         return token;

@@ -1,0 +1,19 @@
+# 孪生环境服务镜像：从修复分支的源码构建 demo-cs 的订单服务。
+# 构建上下文由 ComposeTwinProvider 准备：仓库内容在 src/ 下。
+# 仅用 .NET SDK 与 runtime 官方镜像；零 NuGet 依赖，构建过程不需要联网。
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+WORKDIR /src
+COPY src/orders/Orders.csproj orders/
+RUN dotnet restore orders/Orders.csproj
+COPY src/orders/ orders/
+RUN dotnet publish orders/Orders.csproj -c Release -o /out --no-restore /p:UseAppHost=false
+
+FROM mcr.microsoft.com/dotnet/runtime:10.0
+WORKDIR /app
+COPY --from=build /out ./
+ENV PORT=8080 \
+    DOTNET_CLI_TELEMETRY_OPTOUT=1 \
+    DOTNET_NOLOGO=1
+USER 10001:10001
+EXPOSE 8080
+ENTRYPOINT ["dotnet", "Orders.dll"]

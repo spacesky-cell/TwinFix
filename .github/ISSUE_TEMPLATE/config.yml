@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 安全漏洞（私下报告）
+    url: https://github.com/spacesky-cell/TwinFix/security/advisories/new
+    about: 请勿在公开 Issue 中披露漏洞、密钥或真实事故数据。
+  - name: 设计文档
+    url: https://github.com/spacesky-cell/TwinFix/tree/main/docs
+    about: 架构、安全、Git/CI、基准测试与评测说明。

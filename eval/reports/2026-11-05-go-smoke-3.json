@@ -1,0 +1,47 @@
+{
+ "title": "TwinFix 靶场评测 2026-11-05",
+ "meta": {
+  "运行": "go-smoke-3",
+  "日期": "2026-11-05",
+  "Agent": "go-smoke",
+  "用例": "G001"
+ },
+ "summary": {
+  "total": 1,
+  "outcome_accuracy": 1.0,
+  "top1": 1.0,
+  "top3": 1.0,
+  "repro_rate": 1.0,
+  "fix_rate": 1.0,
+  "false_fix_rate": 0.0,
+  "needs_human_rate": 0.0,
+  "avg_duration_s": 1142.82501,
+  "avg_tokens": 1895409.0,
+  "avg_cost": 0.0
+ },
+ "cases": [
+  {
+   "case_id": "G001",
+   "category": "空指针",
+   "expected": "fixed",
+   "final_state": "AWAITING_REVIEW",
+   "outcome_correct": true,
+   "root_cause_top1": true,
+   "root_cause_top3": true,
+   "root_cause_graded": true,
+   "keyword_hits": 0.8,
+   "reproduced": true,
+   "verified": true,
+   "hidden_passed": true,
+   "false_fix": false,
+   "needs_human": false,
+   "duration_s": 1142.82501,
+   "tokens": 1895409,
+   "cost": 0.0,
+   "incident_id": "01M6ND9JX641N9AT8MNDKNY19B",
+   "error": null,
+   "notes": [],
+   "fix_success": true
+  }
+ ]
+}

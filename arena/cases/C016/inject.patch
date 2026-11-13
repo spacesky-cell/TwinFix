@@ -1,0 +1,146 @@
+diff --git a/inventory/src/main/java/com/acme/inventory/infra/JdbcStockRepository.java b/inventory/src/main/java/com/acme/inventory/infra/JdbcStockRepository.java
+index d5a7ed6..ab9e1f9 100644
+--- a/inventory/src/main/java/com/acme/inventory/infra/JdbcStockRepository.java
++++ b/inventory/src/main/java/com/acme/inventory/infra/JdbcStockRepository.java
+@@ -37,4 +37,12 @@ public class JdbcStockRepository implements StockRepository {
+                 .update();
+         return updated == 1;
+     }
++
++    @Override
++    public void restock(String sku, int quantity) {
++        jdbc.sql("UPDATE stock SET available = available + :q WHERE sku = :sku")
++                .param("q", quantity)
++                .param("sku", sku)
++                .update();
++    }
+ }
+diff --git a/inventory/src/main/java/com/acme/inventory/infra/StockRepository.java b/inventory/src/main/java/com/acme/inventory/infra/StockRepository.java
+index 8cc5dee..1c94a2d 100644
+--- a/inventory/src/main/java/com/acme/inventory/infra/StockRepository.java
++++ b/inventory/src/main/java/com/acme/inventory/infra/StockRepository.java
+@@ -15,4 +15,7 @@ public interface StockRepository {
+      * @return true if the stock was reserved, false if there was not enough
+      */
+     boolean tryReserve(String sku, int quantity);
++
++    /** Adds {@code quantity} back to the SKU (restock / inbound transfer). */
++    void restock(String sku, int quantity);
+ }
+diff --git a/inventory/src/main/java/com/acme/inventory/service/StockService.java b/inventory/src/main/java/com/acme/inventory/service/StockService.java
+index 26749b6..7cd8e66 100644
+--- a/inventory/src/main/java/com/acme/inventory/service/StockService.java
++++ b/inventory/src/main/java/com/acme/inventory/service/StockService.java
+@@ -2,11 +2,15 @@ package com.acme.inventory.service;
+ 
+ import com.acme.inventory.domain.OutOfStockException;
+ import com.acme.inventory.infra.StockRepository;
++import java.util.Map;
+ import java.util.NoSuchElementException;
++import java.util.concurrent.ConcurrentHashMap;
+ 
+ public class StockService {
+ 
+     private final StockRepository repo;
++    // 每个 SKU 一把进程内锁：调拨的"扣减 + 入库"两步之间不允许其他调拨插进来
++    private final Map<String, Object> locks = new ConcurrentHashMap<>();
+ 
+     public StockService(StockRepository repo) {
+         this.repo = repo;
+@@ -33,4 +37,26 @@ public class StockService {
+         }
+         repo.release(sku, quantity);
+     }
++
++    /** 仓间调拨：把 {@code quantity} 件库存从 fromSku 挪到 toSku（如换包装、拆套装）。 */
++    public void transfer(String fromSku, String toSku, int quantity) {
++        if (quantity <= 0) {
++            throw new IllegalArgumentException("quantity must be positive");
++        }
++        if (fromSku.equals(toSku)) {
++            throw new IllegalArgumentException("cannot transfer to the same sku");
++        }
++        synchronized (lockFor(fromSku)) {
++            synchronized (lockFor(toSku)) {
++                if (!repo.tryReserve(fromSku, quantity)) {
++                    throw new OutOfStockException(fromSku, quantity, available(fromSku));
++                }
++                repo.restock(toSku, quantity);
++            }
++        }
++    }
++
++    private Object lockFor(String sku) {
++        return locks.computeIfAbsent(sku, k -> new Object());
++    }
+ }
+diff --git a/inventory/src/main/java/com/acme/inventory/web/StockController.java b/inventory/src/main/java/com/acme/inventory/web/StockController.java
+index 6526f58..b8c9b6e 100644
+--- a/inventory/src/main/java/com/acme/inventory/web/StockController.java
++++ b/inventory/src/main/java/com/acme/inventory/web/StockController.java
+@@ -25,6 +25,9 @@ public class StockController {
+     public record ReserveRequest(int quantity) {
+     }
+ 
++    public record TransferRequest(String from, String to, int quantity) {
++    }
++
+     private final StockService service;
+ 
+     public StockController(StockService service) {
+@@ -49,6 +52,12 @@ public class StockController {
+         return Map.of("sku", sku, "released", req.quantity());
+     }
+ 
++    @PostMapping("/transfer")
++    public Map<String, Object> transfer(@RequestBody TransferRequest req) {
++        service.transfer(req.from(), req.to(), req.quantity());
++        return Map.of("from", req.from(), "to", req.to(), "moved", req.quantity());
++    }
++
+     @ExceptionHandler(OutOfStockException.class)
+     ResponseEntity<Map<String, String>> outOfStock(OutOfStockException e) {
+         return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("code", "OUT_OF_STOCK", "message", e.getMessage()));
+diff --git a/inventory/src/test/java/com/acme/inventory/service/StockServiceTest.java b/inventory/src/test/java/com/acme/inventory/service/StockServiceTest.java
+index 89a9612..384470f 100644
+--- a/inventory/src/test/java/com/acme/inventory/service/StockServiceTest.java
++++ b/inventory/src/test/java/com/acme/inventory/service/StockServiceTest.java
+@@ -14,7 +14,7 @@ class StockServiceTest {
+ 
+     /** In-memory repository with the same atomic semantics as the SQL conditional update. */
+     static class MemoryStock implements StockRepository {
+-        final Map<String, Integer> rows = new ConcurrentHashMap<>(Map.of("SKU-1", 5));
++        final Map<String, Integer> rows = new ConcurrentHashMap<>(Map.of("SKU-1", 5, "SKU-2", 0));
+ 
+         @Override
+         public OptionalInt available(String sku) {
+@@ -36,6 +36,11 @@ class StockServiceTest {
+         public synchronized void release(String sku, int quantity) {
+             rows.merge(sku, quantity, Integer::sum);
+         }
++
++        @Override
++        public synchronized void restock(String sku, int quantity) {
++            rows.merge(sku, quantity, Integer::sum);
++        }
+     }
+ 
+     private final MemoryStock repo = new MemoryStock();
+@@ -57,4 +62,17 @@ class StockServiceTest {
+     void rejectsNonPositiveQuantity() {
+         assertThatThrownBy(() -> service.reserve("SKU-1", 0)).isInstanceOf(IllegalArgumentException.class);
+     }
++
++    @Test
++    void transfersBetweenSkus() {
++        service.transfer("SKU-1", "SKU-2", 2);
++        assertThat(service.available("SKU-1")).isEqualTo(3);
++        assertThat(service.available("SKU-2")).isEqualTo(2);
++    }
++
++    @Test
++    void transferRejectsWhenSourceInsufficient() {
++        assertThatThrownBy(() -> service.transfer("SKU-1", "SKU-2", 9)).isInstanceOf(OutOfStockException.class);
++        assertThat(service.available("SKU-2")).isZero();
++    }
+ }

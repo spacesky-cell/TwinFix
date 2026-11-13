@@ -1,0 +1,10 @@
+diff --git a/orders/config.py b/orders/config.py
+index 665ab31..a6c6812 100644
+--- a/orders/config.py
++++ b/orders/config.py
+@@ -4,4 +4,4 @@ import os
+ 
+ PORT = int(os.environ.get("PORT", "8080"))
+ # 服务间令牌：本地默认值只用于开发环境，生产由部署配置下发
+-INVENTORY_TOKEN = os.environ.get("ORDERS_INVENTORY_TOKEN", "dev-inventory-token")
++INVENTORY_TOKEN = os.environ["ORDERS_INVENTORY_TOKEN"]

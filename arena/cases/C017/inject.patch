@@ -1,0 +1,157 @@
+diff --git a/order/src/main/java/com/acme/order/domain/OrderNo.java b/order/src/main/java/com/acme/order/domain/OrderNo.java
+new file mode 100644
+index 0000000..ffbb813
+--- /dev/null
++++ b/order/src/main/java/com/acme/order/domain/OrderNo.java
+@@ -0,0 +1,46 @@
++package com.acme.order.domain;
++
++import java.text.ParseException;
++import java.text.SimpleDateFormat;
++import java.time.Instant;
++import java.util.Date;
++import java.util.TimeZone;
++
++/**
++ * 对外展示的订单号：{@code SO<下单日 yyyyMMdd>-<id 六位补零>}，如 SO20260101-000042。
++ * 客服按订单号查询时先解析出日期，与订单实际下单日核对，防止拿 id 乱猜。
++ */
++public final class OrderNo {
++
++    // 订单号日期统一按 UTC
++    private static final SimpleDateFormat DAY = new SimpleDateFormat("yyyyMMdd");
++
++    static {
++        DAY.setTimeZone(TimeZone.getTimeZone("UTC"));
++        DAY.setLenient(false);
++    }
++
++    private OrderNo() {
++    }
++
++    public static String of(long id, Instant createdAt) {
++        return "SO" + DAY.format(Date.from(createdAt)) + "-" + String.format("%06d", id);
++    }
++
++    /** 订单号里的下单日（当天 00:00 UTC）。 */
++    public static Instant dayOf(String orderNo) {
++        if (orderNo == null || !orderNo.matches("SO\\d{8}-\\d{6,}")) {
++            throw new BizException("INVALID_ORDER_NO", "invalid order no " + orderNo);
++        }
++        try {
++            return DAY.parse(orderNo.substring(2, 10)).toInstant();
++        } catch (ParseException e) {
++            throw new BizException("INVALID_ORDER_NO", "invalid order no " + orderNo);
++        }
++    }
++
++    public static long idOf(String orderNo) {
++        dayOf(orderNo);
++        return Long.parseLong(orderNo.substring(11));
++    }
++}
+diff --git a/order/src/main/java/com/acme/order/service/OrderService.java b/order/src/main/java/com/acme/order/service/OrderService.java
+index 8628afd..9c57b10 100644
+--- a/order/src/main/java/com/acme/order/service/OrderService.java
++++ b/order/src/main/java/com/acme/order/service/OrderService.java
+@@ -4,6 +4,7 @@ import com.acme.order.domain.BizException;
+ import com.acme.order.domain.Coupon;
+ import com.acme.order.domain.Order;
+ import com.acme.order.domain.OrderLine;
++import com.acme.order.domain.OrderNo;
+ import com.acme.order.domain.PriceBreakdown;
+ import com.acme.order.domain.PriceCalculator;
+ import com.acme.order.infra.CouponRepository;
+@@ -70,7 +71,8 @@ public class OrderService {
+             throw e;
+         }
+         Order saved = orders.save(new Order(null, req.customer(), lines, price, "CREATED", Instant.now(clock)));
+-        log.info("order {} created for {} total={} coupon={}", saved.id(), req.customer(), price.total(), price.appliedCoupon());
++        log.info("order {} ({}) created for {} total={} coupon={}", saved.id(), OrderNo.of(saved.id(), saved.createdAt()),
++                req.customer(), price.total(), price.appliedCoupon());
+         return saved;
+     }
+ 
+@@ -89,6 +91,16 @@ public class OrderService {
+         return orders.findById(id).orElseThrow(() -> new BizException("ORDER_NOT_FOUND", "order " + id + " not found"));
+     }
+ 
++    /** 客服按订单号查询：订单号里的日期必须与下单日一致。 */
++    public Order getByNo(String orderNo) {
++        long id = OrderNo.idOf(orderNo);
++        Order order = orders.findById(id).orElse(null);
++        if (order == null || !OrderNo.of(order.id(), order.createdAt()).equals(orderNo)) {
++            throw new BizException("ORDER_NOT_FOUND", "order " + orderNo + " not found");
++        }
++        return order;
++    }
++
+     /** 支付回调：置为 PAID。经 self 调用保证事务注解在代理上生效。 */
+     public Order confirmPaid(long id) {
+         return self.markPaid(id);
+diff --git a/order/src/main/java/com/acme/order/web/OrderController.java b/order/src/main/java/com/acme/order/web/OrderController.java
+index 41553f3..66cbb1e 100644
+--- a/order/src/main/java/com/acme/order/web/OrderController.java
++++ b/order/src/main/java/com/acme/order/web/OrderController.java
+@@ -32,6 +32,11 @@ public class OrderController {
+         return service.get(id);
+     }
+ 
++    @GetMapping("/by-no/{orderNo}")
++    public Order getByNo(@PathVariable String orderNo) {
++        return service.getByNo(orderNo);
++    }
++
+     /** 支付网关回调：标记订单已支付。 */
+     @PostMapping("/{id}/pay")
+     public Order pay(@PathVariable long id) {
+diff --git a/order/src/test/java/com/acme/order/domain/OrderNoTest.java b/order/src/test/java/com/acme/order/domain/OrderNoTest.java
+new file mode 100644
+index 0000000..21b54f9
+--- /dev/null
++++ b/order/src/test/java/com/acme/order/domain/OrderNoTest.java
+@@ -0,0 +1,27 @@
++package com.acme.order.domain;
++
++import static org.assertj.core.api.Assertions.assertThat;
++import static org.assertj.core.api.Assertions.assertThatThrownBy;
++
++import java.time.Instant;
++import org.junit.jupiter.api.Test;
++
++class OrderNoTest {
++
++    @Test
++    void formatsDayAndPaddedId() {
++        assertThat(OrderNo.of(42, Instant.parse("2026-01-01T23:59:59Z"))).isEqualTo("SO20260101-000042");
++    }
++
++    @Test
++    void parsesBack() {
++        assertThat(OrderNo.dayOf("SO20260315-000007")).isEqualTo(Instant.parse("2026-03-15T00:00:00Z"));
++        assertThat(OrderNo.idOf("SO20260315-000007")).isEqualTo(7L);
++    }
++
++    @Test
++    void rejectsMalformed() {
++        assertThatThrownBy(() -> OrderNo.dayOf("SO2026-1")).isInstanceOf(BizException.class);
++        assertThatThrownBy(() -> OrderNo.dayOf("SO20261345-000001")).isInstanceOf(BizException.class);
++    }
++}
+diff --git a/order/src/test/java/com/acme/order/service/OrderServiceTest.java b/order/src/test/java/com/acme/order/service/OrderServiceTest.java
+index ff32366..8284d1c 100644
+--- a/order/src/test/java/com/acme/order/service/OrderServiceTest.java
++++ b/order/src/test/java/com/acme/order/service/OrderServiceTest.java
+@@ -118,4 +118,12 @@ class OrderServiceTest {
+         assertThat(inventory.stock).containsEntry("SKU-1", 10);
+         assertThat(inventory.released).containsExactly("SKU-1x2");
+     }
++
++    @Test
++    void findsByOrderNo() {
++        Order o = service.create(new OrderService.CreateOrder("bob",
++                List.of(new OrderService.LineRequest("SKU-2", 1)), null));
++        assertThat(service.getByNo("SO20260101-000001").id()).isEqualTo(o.id());
++        assertThatThrownBy(() -> service.getByNo("SO20251231-000001")).isInstanceOf(BizException.class);
++    }
+ }

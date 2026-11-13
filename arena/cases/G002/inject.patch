@@ -1,0 +1,59 @@
+diff --git a/orders/service.go b/orders/service.go
+index d32fa1c..9d9be41 100644
+--- a/orders/service.go
++++ b/orders/service.go
+@@ -10,6 +10,7 @@ type OrderService struct {
+ 	calculator PriceCalculator
+ 	orders     map[string]*Order
+ 	seq        int
++	lastCoupon *Coupon
+ }
+ 
+ func NewOrderService(inventory *Inventory) *OrderService {
+@@ -20,6 +21,9 @@ func (s *OrderService) Create(customer string, lines []OrderLine, coupon *Coupon
+ 	if len(lines) == 0 {
+ 		return nil, errors.New("order needs at least one line")
+ 	}
++	if coupon == nil {
++		coupon = s.lastCoupon
++	}
+ 	cart := NewCart(customer, nil)
+ 	for _, line := range lines {
+ 		if err := s.inventory.Reserve(line.SKU, line.Quantity); err != nil {
+@@ -39,6 +43,9 @@ func (s *OrderService) Create(customer string, lines []OrderLine, coupon *Coupon
+ 		Total:    breakdown.Total(),
+ 	}
+ 	s.orders[order.ID] = order
++	if coupon != nil {
++		s.lastCoupon = coupon
++	}
+ 	return order, nil
+ }
+ 
+diff --git a/orders/service_test.go b/orders/service_test.go
+index 0df6ba7..e8e430f 100644
+--- a/orders/service_test.go
++++ b/orders/service_test.go
+@@ -40,22 +40,3 @@ func TestFailedMultiLineOrderReleasesReservedLines(t *testing.T) {
+ 	}
+ }
+ 
+-func TestCouponDoesNotLeakBetweenOrders(t *testing.T) {
+-	inventory := NewInventoryWith(map[string]int{"SKU-1": 10, "SKU-2": 10})
+-	service := NewOrderService(inventory)
+-	coupon := &Coupon{Code: "SAVE20", Kind: "amount", Value: 2000, Threshold: 10000}
+-	first, err := service.Create("u-1", []OrderLine{{SKU: "SKU-1", Quantity: 1, UnitPrice: 10000}}, coupon)
+-	if err != nil {
+-		t.Fatal(err)
+-	}
+-	if first.Total != 8000 {
+-		t.Fatalf("first total = %s, want 80.00", first.Total)
+-	}
+-	second, err := service.Create("u-2", []OrderLine{{SKU: "SKU-2", Quantity: 1, UnitPrice: 10000}}, nil)
+-	if err != nil {
+-		t.Fatal(err)
+-	}
+-	if second.Total != 10000 {
+-		t.Fatalf("second total = %s, want 100.00 (coupon leaked from previous order)", second.Total)
+-	}
+-}

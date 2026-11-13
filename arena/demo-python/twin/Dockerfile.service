@@ -1,0 +1,14 @@
+# 孪生环境服务镜像：从修复分支的源码构建 demo-python 的订单服务。
+# 纯标准库 + python:3.12-slim，构建过程不需要联网安装依赖。
+FROM python:3.12-slim
+
+RUN useradd --system --uid 10001 --create-home app
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app
+WORKDIR /app
+COPY src/orders /app/orders
+RUN chown -R app:app /app
+USER app
+EXPOSE 8080
+CMD ["python", "-m", "orders.app"]

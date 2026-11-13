@@ -1,0 +1,31 @@
+id: C007
+title: 支付流水写失败被 catch 吞掉，事务提交了"已支付无流水"
+category: 事务
+description: >
+  支付回调 markPaid 新增了写支付流水，但作者把流水异常 catch 住只打了 warn，
+  认为"夜间对账会补齐"。@Transactional 看不到异常，于是把 PAID 状态提交了：
+  订单显示已支付、payment 表却没有记录，对账任务只会报差异不会补数据。
+  单测里的仓储替身 recordPayment 是空实现，CI 是绿的。
+inject:
+  type: patch
+  file: inject.patch
+  branch: dev
+  message: "feat(order): record payment ledger on pay callback"
+  services: [order]
+signal:
+  title: "对账：订单 PAID 但 payment 表无流水（12 笔）"
+  service: order
+  env: test
+  severity: S2
+  message: |
+    夜间对账发现 12 笔订单 status=PAID 但 payment 表中没有对应流水。
+    同时段 order 服务日志：
+      WARN  c.a.order.service.OrderService - payment ledger write failed for order 1042:
+            duplicate key value violates unique constraint "payment_order_id_key"
+    支付回调接口 POST /api/orders/{id}/pay 均返回 200。
+expect:
+  outcome: fixed
+  root_cause_locations: ["order/src/main/java/com/acme/order/service/OrderService.java#markPaid"]
+  root_cause_keywords: ["catch", "吞", "回滚", "rollback", "事务"]
+# 隐藏测试：流水写失败必须向上抛（事务才会回滚），成功路径仍按订单金额记一笔流水（防止"删掉流水"式修复）。
+hidden_tests: [hidden/OrderServicePaymentLedgerHiddenTest.java]

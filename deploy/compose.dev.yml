@@ -1,0 +1,167 @@
+# TwinFix 本地开发环境
+#   只起基础设施：      docker compose -f deploy/compose.dev.yml up -d postgres redis rabbitmq
+#   全部（含应用）：    docker compose -f deploy/compose.dev.yml up -d --build
+# 端口只绑定 127.0.0.1；默认口令仅供本地开发。
+name: twinfix
+
+x-app: &app
+  build:
+    context: ../server
+    dockerfile: Dockerfile
+  env_file:
+    - path: ./.env
+      required: false
+  environment: &app-env
+    TWINFIX_DATABASE_URL: postgresql+psycopg://twinfix:twinfix@postgres:5432/twinfix
+    TWINFIX_REDIS_URL: redis://redis:6379/0
+    TWINFIX_AMQP_URL: amqp://twinfix:twinfix@rabbitmq:5672/twinfix
+    TWINFIX_DATA_DIR: /data
+    # 本地开发默认用本地裸仓库：控制台「Arena 注入」与 Agent 工作区都依赖它。
+    # 需要回到内存实现时显式设置 TWINFIX_CODEHOST=fake。
+    TWINFIX_CODEHOST: ${TWINFIX_CODEHOST:-local}
+    TWINFIX_GIT_ROOT: /data/git
+    TWINFIX_AUTH_DISABLED: ${TWINFIX_AUTH_DISABLED:-true}
+    TWINFIX_JWT_SECRET: ${TWINFIX_JWT_SECRET:-}
+    # docker CLI 的配置目录；容器内 HOME 不可写，放到 /tmp
+    DOCKER_CONFIG: /tmp/.docker
+  volumes:
+    - twinfix-data:/data
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+    rabbitmq:
+      condition: service_healthy
+  restart: unless-stopped
+
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.0-pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: twinfix
+      POSTGRES_PASSWORD: twinfix
+      POSTGRES_DB: twinfix
+    ports: ["127.0.0.1:5432:5432"]
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U twinfix -d twinfix"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports: ["127.0.0.1:6379:6379"]
+    volumes: [redis-data:/data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: twinfix
+      RABBITMQ_DEFAULT_PASS: twinfix
+      RABBITMQ_DEFAULT_VHOST: twinfix
+    ports: ["127.0.0.1:5672:5672", "127.0.0.1:15672:15672"]
+    volumes: [rabbitmq-data:/var/lib/rabbitmq]
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+
+  migrate:
+    <<: *app
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+
+  twinfix-api:
+    <<: *app
+    command: ["uvicorn", "twinfix.api.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
+    ports: ["127.0.0.1:8000:8000"]
+    environment:
+      <<: *app-env
+      # 控制台 Arena 页与"评测"页只读这两个目录；镜像里没有，从仓库挂进来
+      TWINFIX_ARENA_CASES_DIR: /arena/cases
+      TWINFIX_ARENA_DEMO_SHOP_DIR: /arena/demo-shop
+      TWINFIX_EVAL_REPORTS_DIR: /eval/reports
+      # 容器内评测判分：Maven 用挂载的镜像源配置，本地仓库落在可写的 /data 卷
+      TWINFIX_EVAL_MAVEN_SETTINGS: /deploy/maven/eval-settings.xml
+      TWINFIX_EVAL_MAVEN_REPO: /data/m2/repository
+    volumes:
+      - twinfix-data:/data
+      - ../arena/cases:/arena/cases:ro
+      - ../arena/demo-shop:/arena/demo-shop:ro
+      - ../arena/demo-python:/arena/demo-python:ro
+      - ../arena/demo-go:/arena/demo-go:ro
+      - ../arena/demo-ts:/arena/demo-ts:ro
+      - ../arena/demo-cs:/arena/demo-cs:ro
+      # 可写：控制台发起的评测（POST /api/eval/runs）把报告写到这里
+      - ../eval/reports:/eval/reports
+      # 孪生环境模板与 Maven settings：ComposeTwinProvider 按仓库根定位
+      - ../arena/twin:/arena/twin:ro
+      - ../deploy/maven:/deploy/maven:ro
+      # 沙箱容器与孪生 compose 都通过宿主机 daemon 创建
+      - /var/run/docker.sock:/var/run/docker.sock
+    # Docker socket 在容器内属于 root 组（srw-rw---- root:root）
+    group_add: ["0"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  twinfix-worker:
+    <<: *app
+    command: ["twinfix-worker"]
+    environment:
+      <<: *app-env
+      # 模拟 Agent 动作间停顿，便于在控制台观察事件流；设为 0 即全速
+      TWINFIX_STUB_DELAY_S: ${TWINFIX_STUB_DELAY_S:-0.6}
+      TWINFIX_CONSOLE_URL: http://localhost:${TWINFIX_WEB_PORT:-17317}
+    volumes:
+      - twinfix-data:/data
+      # ComposeTwinProvider 的默认模板相对仓库根定位
+      - ../arena/twin:/arena/twin:ro
+      # Python / Go / TypeScript / C# 用例的孪生模板由项目配置按仓库根定位
+      # （arena/demo-python/twin、arena/demo-go/twin、arena/demo-ts/twin、arena/demo-cs/twin）
+      - ../arena/demo-python:/arena/demo-python:ro
+      - ../arena/demo-go:/arena/demo-go:ro
+      - ../arena/demo-ts:/arena/demo-ts:ro
+      - ../arena/demo-cs:/arena/demo-cs:ro
+      - ../deploy/maven:/deploy/maven:ro
+      # 沙箱容器与孪生 compose 都通过宿主机 daemon 创建
+      - /var/run/docker.sock:/var/run/docker.sock
+    group_add: ["0"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  web:
+    build:
+      context: ../web
+      dockerfile: Dockerfile
+    ports: ["127.0.0.1:${TWINFIX_WEB_PORT:-17317}:80"]
+    depends_on:
+      twinfix-api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pg-data:
+  redis-data:
+  rabbitmq-data:
+  twinfix-data:

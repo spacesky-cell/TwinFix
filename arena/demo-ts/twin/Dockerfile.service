@@ -1,0 +1,10 @@
+# 孪生环境服务镜像：从修复分支的源码构建 demo-ts 的订单服务。
+# Node 22 直接执行 TypeScript（类型剥离），无第三方依赖，构建过程不需要联网。
+FROM node:22-bookworm-slim
+
+WORKDIR /app
+COPY src/orders /app/orders
+ENV PORT=8080
+USER 10001:10001
+EXPOSE 8080
+CMD ["node", "orders/app.ts"]

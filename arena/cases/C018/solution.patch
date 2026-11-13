@@ -1,0 +1,22 @@
+diff --git a/inventory/src/main/java/com/acme/inventory/service/StockService.java b/inventory/src/main/java/com/acme/inventory/service/StockService.java
+index b16869b..1b482b5 100644
+--- a/inventory/src/main/java/com/acme/inventory/service/StockService.java
++++ b/inventory/src/main/java/com/acme/inventory/service/StockService.java
+@@ -4,6 +4,7 @@ import com.acme.inventory.domain.OutOfStockException;
+ import com.acme.inventory.infra.StockRepository;
+ import java.util.Map;
+ import java.util.NoSuchElementException;
++import java.util.Objects;
+ import java.util.TreeMap;
+ 
+ public class StockService {
+@@ -36,7 +37,8 @@ public class StockService {
+         Map<String, Integer> mismatched = new TreeMap<>();
+         for (Map.Entry<String, Integer> e : counted.entrySet()) {
+             Integer actual = system.get(e.getKey());
+-            if (actual != e.getValue()) {
++            // Integer 是对象：!= 比较的是引用，只在 -128..127 缓存范围内"碰巧"正确；必须按值比较（null 安全）
++            if (!Objects.equals(actual, e.getValue())) {
+                 mismatched.put(e.getKey(), actual);
+             }
+         }

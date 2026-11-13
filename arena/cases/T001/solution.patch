@@ -1,0 +1,64 @@
+diff --git b/orders/pricing.ts a/orders/pricing.ts
+index 9f65a5a..2e378de 100644
+--- b/orders/pricing.ts
++++ a/orders/pricing.ts
+@@ -13,8 +13,11 @@ export class PriceCalculator {
+   }
+ 
+   discountFor(subtotal: number, coupon: Coupon | null): number {
++    if (coupon === null) {
++      return 0;
++    }
+     const threshold = this.threshold(coupon);
+-    if (coupon === null || subtotal < threshold) {
++    if (subtotal < threshold) {
+       return 0;
+     }
+     if (coupon.kind === "amount") {
+diff --git b/orders/tests/pricing.test.ts a/orders/tests/pricing.test.ts
+index 9b3b8b8..b737e9e 100644
+--- b/orders/tests/pricing.test.ts
++++ a/orders/tests/pricing.test.ts
+@@ -10,6 +10,13 @@ function lines(unitPrice: number, quantity = 1): OrderLine[] {
+   return [{ sku: "SKU-X", quantity, unitPrice }];
+ }
+ 
++test("prices an order without a coupon at subtotal", () => {
++  const breakdown = CALC.calculate(lines(17980));
++  assert.equal(breakdown.total, 17980);
++  assert.equal(breakdown.discount, 0);
++  assert.equal(breakdown.appliedCoupon, null);
++});
++
+ test("amount coupon applies at configured threshold", () => {
+   const coupon: Coupon = { code: "SAVE20", kind: "amount", value: 2000, threshold: 10000 };
+   const breakdown = CALC.calculate(lines(10000), coupon);
+diff --git b/orders/tests/service.test.ts a/orders/tests/service.test.ts
+index a72c3ed..1fd74fe 100644
+--- b/orders/tests/service.test.ts
++++ a/orders/tests/service.test.ts
+@@ -16,9 +16,8 @@ function line(unitPrice: number): OrderLine {
+ test("creates an order and reserves stock", () => {
+   const inventory = new Inventory({ "SKU-1": 2 });
+   const orders = new OrderService(inventory);
+-  const coupon: Coupon = { code: "OFF10", kind: "percent", value: 10 };
+-  const order = orders.create("u-1", [line(10000)], coupon);
+-  assert.equal(order.total, 9000);
++  const order = orders.create("u-1", [line(10000)]);
++  assert.equal(order.total, 10000);
+   assert.equal(inventory.available("SKU-1"), 1);
+ });
+ 
+@@ -33,3 +32,12 @@ test("failed multi-line order releases reserved lines", () => {
+   );
+   assert.equal(inventory.available("SKU-1"), 5);
+ });
++
++test("does not leak a coupon into the next order", () => {
++  const orders = service();
++  const coupon: Coupon = { code: "SAVE20", kind: "amount", value: 2000, threshold: 10000 };
++  const first = orders.create("u-1", [line(10000)], coupon);
++  assert.equal(first.total, 8000);
++  const second = orders.create("u-2", [line(10000)], null);
++  assert.equal(second.total, 10000);
++});

@@ -1,0 +1,36 @@
+id: C003
+title: 金额用 double 计算，对账差一分钱
+category: 精度
+description: >
+  OrderLine.total() 被改成了先转成 double 相乘再转回 BigDecimal。
+  对 0.1 这类十进制小数 double 无法精确表示，乘以数量后再凑整会在
+  HALF_UP 之前就产生向下误差，导致整单金额比 BigDecimal 精确计算少 1 分。
+  批量对账时这些一分钱累积成差账。
+inject:
+  type: patch
+  file: inject.patch
+  branch: dev
+  message: "perf(order): compute line totals in double, difference is sub-cent"
+  services: [order]
+trigger:
+  requests:
+    - service: order
+      method: POST
+      path: /api/orders
+      body: { customer: "u-3001", lines: [{ sku: "SKU-2", quantity: 3 }] }
+signal:
+  title: "reconciliation: order total off by 0.01 on discounted lines"
+  service: order
+  env: test
+  severity: S2
+  stacktrace: |
+    expected subtotal 269.70 but was 269.69 for 3 x SKU-2 @ 89.90 (10% line discount)
+        at com.acme.order.domain.OrderLine.total(OrderLine.java:28)
+        at com.acme.order.domain.PriceCalculator.calculate(PriceCalculator.java:16)
+        at com.acme.order.service.OrderService.create(OrderService.java:57)
+expect:
+  outcome: fixed
+  root_cause_locations: ["order/src/main/java/com/acme/order/domain/OrderLine.java#total"]
+  root_cause_keywords: ["double", "精度", "BigDecimal", "HALF_UP"]
+# 隐藏测试：double 漂移的具体金额用例 + 约束仍返回 scale-2 BigDecimal（不允许改成 long 分）。
+hidden_tests: [hidden/OrderLineMoneyHiddenTest.java]

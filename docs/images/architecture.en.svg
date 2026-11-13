@@ -1,0 +1,137 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="830" viewBox="0 0 1200 830" font-family="'Segoe UI','Helvetica Neue',Arial,sans-serif" role="img" aria-label="TwinFix architecture">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#64748b"/>
+    </marker>
+    <marker id="arrow-dash" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#f59e0b"/>
+    </marker>
+  </defs>
+
+  <rect width="1200" height="830" fill="#0b1220"/>
+  <text x="40" y="21" fill="#e2e8f0" font-size="17" font-weight="700" letter-spacing="0.3">TwinFix · autonomous diagnosis &amp; fixing inside disposable twin environments</text>
+
+  <!-- 1 signals -->
+  <rect x="40" y="34" width="1120" height="82" rx="10" fill="#111c2e" stroke="#24344d"/>
+  <text x="58" y="56" fill="#38bdf8" font-size="12" font-weight="700" letter-spacing="1">① SIGNALS</text>
+  <text x="58" y="74" fill="#8aa0bb" font-size="11">Webhook verified · enqueue then return</text>
+  <g font-size="12.5" fill="#dbe7f5">
+    <rect x="300" y="48" width="156" height="52" rx="8" fill="#16283f" stroke="#2c4a6e"/><text x="378" y="79" text-anchor="middle">Alert webhook</text>
+    <rect x="468" y="48" width="156" height="52" rx="8" fill="#16283f" stroke="#2c4a6e"/><text x="546" y="79" text-anchor="middle">Log / metric alert</text>
+    <rect x="636" y="48" width="156" height="52" rx="8" fill="#16283f" stroke="#2c4a6e"/><text x="714" y="79" text-anchor="middle">GitHub Issue</text>
+    <rect x="804" y="48" width="156" height="52" rx="8" fill="#16283f" stroke="#2c4a6e"/><text x="882" y="79" text-anchor="middle">Manual / IM bot</text>
+  </g>
+
+  <line x1="600" y1="116" x2="600" y2="136" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+  <!-- 2 triage -->
+  <rect x="40" y="136" width="1120" height="82" rx="10" fill="#111c2e" stroke="#24344d"/>
+  <text x="58" y="158" fill="#818cf8" font-size="12" font-weight="700" letter-spacing="1">② TRIAGE</text>
+  <text x="58" y="176" fill="#8aa0bb" font-size="11">Configurable rules · LLM assist when uncertain</text>
+  <g font-size="12.5" fill="#e6edf7">
+    <rect x="300" y="150" width="180" height="52" rx="8" fill="#1a2140" stroke="#39427a"/><text x="390" y="181" text-anchor="middle">Normalize → fingerprint</text>
+    <rect x="496" y="150" width="180" height="52" rx="8" fill="#1a2140" stroke="#39427a"/><text x="586" y="181" text-anchor="middle">Dedup &amp; aggregate</text>
+    <rect x="692" y="150" width="180" height="52" rx="8" fill="#1a2140" stroke="#39427a"/><text x="782" y="181" text-anchor="middle">Filter non-bugs · severity</text>
+    <rect x="888" y="150" width="180" height="52" rx="8" fill="#1a2140" stroke="#39427a"/><text x="978" y="181" text-anchor="middle">Create / merge Incident</text>
+  </g>
+
+  <line x1="600" y1="218" x2="600" y2="238" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+  <!-- 3 orchestration -->
+  <rect x="40" y="238" width="1120" height="94" rx="10" fill="#111c2e" stroke="#24344d"/>
+  <text x="58" y="260" fill="#a78bfa" font-size="12" font-weight="700" letter-spacing="1">③ ASYNC ORCHESTRATION</text>
+  <text x="58" y="278" fill="#8aa0bb" font-size="11">Deterministic flow · LLM only inside nodes</text>
+  <g font-size="12.5" fill="#e6edf7">
+    <rect x="300" y="252" width="150" height="58" rx="8" fill="#241a3d" stroke="#4c3a78"/><text x="375" y="286" text-anchor="middle">API → MQ</text>
+    <rect x="466" y="252" width="150" height="58" rx="8" fill="#241a3d" stroke="#4c3a78"/><text x="541" y="286" text-anchor="middle">RabbitMQ</text>
+    <rect x="632" y="252" width="150" height="58" rx="8" fill="#241a3d" stroke="#4c3a78"/><text x="707" y="286" text-anchor="middle">worker ×N</text>
+    <rect x="798" y="252" width="270" height="58" rx="8" fill="#2a1d45" stroke="#6d5aa8"/>
+    <text x="933" y="277" text-anchor="middle" font-weight="600">LangGraph state machine</text>
+    <text x="933" y="295" text-anchor="middle" font-size="10.5" fill="#b9a8e0">PG checkpoint · Redis single-active lock · resume</text>
+  </g>
+
+  <line x1="600" y1="332" x2="600" y2="352" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+  <!-- 4 agents -->
+  <rect x="40" y="352" width="1120" height="150" rx="10" fill="#111c2e" stroke="#24344d"/>
+  <text x="58" y="374" fill="#fbbf24" font-size="12" font-weight="700" letter-spacing="1">④ FIVE SPECIALIST AGENTS</text>
+  <text x="58" y="392" fill="#8aa0bb" font-size="11">Split by tools / permissions / context</text>
+  <g font-size="13" fill="#f5e9c8">
+    <rect x="300" y="386" width="156" height="82" rx="8" fill="#33280f" stroke="#7a5c1c"/>
+    <text x="378" y="412" text-anchor="middle" font-weight="700">Diagnoser</text>
+    <text x="378" y="432" text-anchor="middle" font-size="10.5" fill="#d4be8a">root causes · evidence</text>
+    <text x="378" y="450" text-anchor="middle" font-size="10.5" fill="#a9956c">→ Diagnosis</text>
+
+    <rect x="464" y="386" width="156" height="82" rx="8" fill="#33280f" stroke="#7a5c1c"/>
+    <text x="542" y="412" text-anchor="middle" font-weight="700">Reproducer</text>
+    <text x="542" y="432" text-anchor="middle" font-size="10.5" fill="#d4be8a">failing test · command</text>
+    <text x="542" y="450" text-anchor="middle" font-size="10.5" fill="#a9956c">→ Repro</text>
+
+    <rect x="628" y="386" width="156" height="82" rx="8" fill="#3a2a0c" stroke="#a87a1f"/>
+    <text x="706" y="412" text-anchor="middle" font-weight="700">Fixer</text>
+    <text x="706" y="432" text-anchor="middle" font-size="10.5" fill="#d4be8a">minimal diff · rationale</text>
+    <text x="706" y="450" text-anchor="middle" font-size="10.5" fill="#a9956c">→ Patch</text>
+
+    <rect x="792" y="386" width="156" height="82" rx="8" fill="#3a2a0c" stroke="#a87a1f"/>
+    <text x="870" y="412" text-anchor="middle" font-weight="700">Verifier</text>
+    <text x="870" y="432" text-anchor="middle" font-size="10.5" fill="#d4be8a">repro + regression</text>
+    <text x="870" y="450" text-anchor="middle" font-size="10.5" fill="#a9956c">→ Verification</text>
+
+    <rect x="956" y="386" width="156" height="82" rx="8" fill="#33280f" stroke="#7a5c1c"/>
+    <text x="1034" y="412" text-anchor="middle" font-weight="700">Reporter</text>
+    <text x="1034" y="432" text-anchor="middle" font-size="10.5" fill="#d4be8a">PR · email · Feishu</text>
+    <text x="1034" y="450" text-anchor="middle" font-size="10.5" fill="#a9956c">→ Report</text>
+  </g>
+  <path d="M870 472 C 820 500, 756 500, 706 472" fill="none" stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arrow-dash)"/>
+  <text x="788" y="516" text-anchor="middle" fill="#f0b24a" font-size="10.5">Verification failed → back to Fixer (≤3)</text>
+
+  <line x1="600" y1="502" x2="600" y2="522" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+  <!-- 5 gateway -->
+  <rect x="40" y="522" width="1120" height="78" rx="10" fill="#111c2e" stroke="#24344d"/>
+  <text x="58" y="544" fill="#fb7185" font-size="12" font-weight="700" letter-spacing="1">⑤ TOOL GATEWAY · SINGLE EGRESS</text>
+  <text x="58" y="562" fill="#8aa0bb" font-size="11">Security enforced in code, not in prompts</text>
+  <g font-size="11.5" fill="#ffd9df">
+    <rect x="300" y="536" width="112" height="46" rx="7" fill="#331a22" stroke="#7e3040"/><text x="356" y="564" text-anchor="middle">Allowlist</text>
+    <rect x="420" y="536" width="112" height="46" rx="7" fill="#331a22" stroke="#7e3040"/><text x="476" y="564" text-anchor="middle">Permissions</text>
+    <rect x="540" y="536" width="112" height="46" rx="7" fill="#331a22" stroke="#7e3040"/><text x="596" y="564" text-anchor="middle">Paths / rate</text>
+    <rect x="660" y="536" width="112" height="46" rx="7" fill="#331a22" stroke="#7e3040"/><text x="716" y="564" text-anchor="middle">Budget</text>
+    <rect x="780" y="536" width="112" height="46" rx="7" fill="#331a22" stroke="#7e3040"/><text x="836" y="564" text-anchor="middle">Approval</text>
+    <rect x="900" y="536" width="112" height="46" rx="7" fill="#331a22" stroke="#7e3040"/><text x="956" y="564" text-anchor="middle">Redact / audit</text>
+  </g>
+
+  <line x1="600" y1="600" x2="600" y2="620" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+  <!-- 6 adapters -->
+  <rect x="40" y="620" width="1120" height="84" rx="10" fill="#111c2e" stroke="#24344d"/>
+  <text x="58" y="642" fill="#34d399" font-size="12" font-weight="700" letter-spacing="1">⑥ ADAPTERS · INTERFACE + IMPLEMENTATION</text>
+  <g font-size="11.5" fill="#d6f5e8">
+    <rect x="300" y="652" width="130" height="40" rx="7" fill="#0f2b24" stroke="#2a6b57"/><text x="365" y="677" text-anchor="middle">Observability</text>
+    <rect x="442" y="652" width="110" height="40" rx="7" fill="#0f2b24" stroke="#2a6b57"/><text x="497" y="677" text-anchor="middle">GitHub App</text>
+    <rect x="564" y="652" width="110" height="40" rx="7" fill="#0f2b24" stroke="#2a6b57"/><text x="619" y="677" text-anchor="middle">Jenkins</text>
+    <rect x="686" y="652" width="130" height="40" rx="7" fill="#0f2b24" stroke="#2a6b57"/><text x="751" y="677" text-anchor="middle">Twin Compose</text>
+    <rect x="828" y="652" width="130" height="40" rx="7" fill="#0f2b24" stroke="#2a6b57"/><text x="893" y="677" text-anchor="middle">Docker sandbox</text>
+    <rect x="970" y="652" width="130" height="40" rx="7" fill="#0f2b24" stroke="#2a6b57"/><text x="1035" y="677" text-anchor="middle">Notify / LLM</text>
+  </g>
+
+  <line x1="600" y1="704" x2="600" y2="724" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+  <!-- 7 safety + human -->
+  <rect x="40" y="724" width="1120" height="86" rx="10" fill="#111c2e" stroke="#24344d"/>
+  <text x="58" y="746" fill="#22d3ee" font-size="12" font-weight="700" letter-spacing="1">⑦ SAFETY · HUMAN IN THE LOOP</text>
+  <g font-size="12" fill="#dcf5fb">
+    <rect x="300" y="736" width="252" height="58" rx="8" fill="#0c2b33" stroke="#22606f"/>
+    <text x="426" y="759" text-anchor="middle" font-weight="600">Twin env · no network</text>
+    <text x="426" y="778" text-anchor="middle" font-size="10.5" fill="#8cc6d4">disposable Compose · TTL reclaim · never prod</text>
+
+    <rect x="568" y="736" width="252" height="58" rx="8" fill="#0c2b33" stroke="#22606f"/>
+    <text x="694" y="759" text-anchor="middle" font-weight="600">Human approval → merge to dev</text>
+    <text x="694" y="778" text-anchor="middle" font-size="10.5" fill="#8cc6d4">one-click approve · agent never merges</text>
+
+    <rect x="836" y="736" width="264" height="58" rx="8" fill="#0c2b33" stroke="#22606f"/>
+    <text x="968" y="759" text-anchor="middle" font-weight="600">Events → SSE → console</text>
+    <text x="968" y="778" text-anchor="middle" font-size="10.5" fill="#8cc6d4">incident_event · Redis Pub/Sub · live timeline</text>
+  </g>
+
+  <text x="58" y="826" fill="#5b708a" font-size="10.5">Diagnose → reproduce → fix → verify → report → human retest → merge; graded by hidden tests the agent never sees.</text>
+</svg>

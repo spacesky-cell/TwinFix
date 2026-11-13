@@ -1,0 +1,24 @@
+diff --git a/order/src/main/java/com/acme/order/config/OrderConfig.java b/order/src/main/java/com/acme/order/config/OrderConfig.java
+index 0803231..fa3a5f7 100644
+--- a/order/src/main/java/com/acme/order/config/OrderConfig.java
++++ b/order/src/main/java/com/acme/order/config/OrderConfig.java
+@@ -40,11 +40,17 @@ public class OrderConfig {
+     }
+ 
+     @Bean
+-    InventoryGateway inventoryGateway(@Value("${shop.inventory-url}") String url) {
++    InventoryGateway inventoryGateway(@Value("${shop.inventory-url}") String url,
++                                      @Value("${shop.inventory-token}") String token) {
+         var factory = new SimpleClientHttpRequestFactory();
+         factory.setConnectTimeout(Duration.ofSeconds(2));
+         factory.setReadTimeout(Duration.ofSeconds(5));
+-        var http = RestClient.builder().baseUrl(url).requestFactory(factory).build();
++        // 库存服务开启了服务间鉴权：每个请求带上共享令牌
++        var http = RestClient.builder()
++                .baseUrl(url)
++                .requestFactory(factory)
++                .defaultHeader("X-Service-Token", token)
++                .build();
+         return new HttpInventoryGateway(http);
+     }
+ 

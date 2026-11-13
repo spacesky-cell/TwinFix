@@ -1,0 +1,35 @@
+# 孪生环境的服务镜像：从修复分支的源码构建一个 Spring Boot 模块
+FROM maven:3.9.9-eclipse-temurin-21 AS build
+ARG MODULE
+WORKDIR /src
+COPY settings.xml /usr/share/maven/conf/settings.xml
+COPY src/ .
+RUN --mount=type=cache,target=/root/.m2/repository \
+    mvn -B -q -pl ${MODULE} -am -DskipTests package
+
+# 运行时探针（docs/04 §1）：JRE 没有 jdk.attach，只能以 premain 方式挂 Arthas。
+# 分发包 arthas-packaging 里嵌的是 arthas-bin.zip，用 JDK 自带的 jar 工具解一层取 4 个 jar。
+RUN --mount=type=cache,target=/root/.m2/repository \
+    mvn -B -q org.apache.maven.plugins:maven-dependency-plugin:3.6.1:get \
+        -Dartifact=com.taobao.arthas:arthas-packaging:4.0.5 -Dtransitive=false \
+ && mkdir -p /opt/arthas && cd /opt/arthas \
+ && jar xf /root/.m2/repository/com/taobao/arthas/arthas-packaging/4.0.5/arthas-packaging-4.0.5.jar arthas-bin.zip \
+ && jar xf arthas-bin.zip arthas-agent.jar arthas-core.jar arthas-client.jar arthas-spy.jar \
+ && rm -f arthas-bin.zip
+
+FROM eclipse-temurin:21-jre
+ARG MODULE
+RUN useradd --system --uid 10001 --create-home app
+COPY --from=build /src/${MODULE}/target/${MODULE}.jar /app/app.jar
+COPY --from=build /opt/arthas/ /opt/arthas/
+RUN chown -R app:app /opt/arthas
+USER app
+ENV HOME=/home/app
+EXPOSE 8080
+# Arthas 只监听容器内的 127.0.0.1（不映射端口）；TwinFix 经 docker exec 用 arthas-client 访问，
+# 所以允许本地免密。stop/shutdown 禁用：孪生环境只能由 TwinFix 销毁。
+ENTRYPOINT ["java", \
+  "-javaagent:/opt/arthas/arthas-agent.jar=/opt/arthas/arthas-core.jar", \
+  "-Darthas.ip=127.0.0.1", "-Darthas.telnetPort=3658", "-Darthas.httpPort=8563", \
+  "-Darthas.localConnectionNonAuth=true", "-Darthas.disabledCommands=stop,shutdown", \
+  "-XX:MaxRAMPercentage=70", "-jar", "/app/app.jar"]

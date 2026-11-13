@@ -1,0 +1,20 @@
+diff --git a/order/src/main/java/com/acme/order/domain/PriceCalculator.java b/order/src/main/java/com/acme/order/domain/PriceCalculator.java
+index d3086f7..414dd3c 100644
+--- a/order/src/main/java/com/acme/order/domain/PriceCalculator.java
++++ b/order/src/main/java/com/acme/order/domain/PriceCalculator.java
+@@ -26,11 +26,14 @@ public class PriceCalculator {
+     }
+ 
+     private BigDecimal discountFor(BigDecimal subtotal, Coupon coupon) {
++        if (coupon == null) {
++            return ZERO;
++        }
+         // 满减券门槛按券面值的 2 倍兜底，防止运营把门槛配成 0 导致无门槛立减
+         BigDecimal threshold = coupon.type() == Coupon.Type.AMOUNT
+                 ? coupon.threshold().max(coupon.value().multiply(BigDecimal.valueOf(2)))
+                 : coupon.threshold();
+-        if (coupon == null || subtotal.compareTo(threshold) < 0) {
++        if (subtotal.compareTo(threshold) < 0) {
+             return ZERO;
+         }
+         BigDecimal discount = switch (coupon.type()) {

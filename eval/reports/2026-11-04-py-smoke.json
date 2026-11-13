@@ -1,0 +1,47 @@
+{
+ "title": "TwinFix 靶场评测 2026-11-04",
+ "meta": {
+  "运行": "py-smoke-4",
+  "日期": "2026-11-04",
+  "Agent": "py-smoke",
+  "用例": "P001"
+ },
+ "summary": {
+  "total": 1,
+  "outcome_accuracy": 1.0,
+  "top1": 1.0,
+  "top3": 1.0,
+  "repro_rate": 1.0,
+  "fix_rate": 1.0,
+  "false_fix_rate": 0.0,
+  "needs_human_rate": 0.0,
+  "avg_duration_s": 359.813774,
+  "avg_tokens": 896426.0,
+  "avg_cost": 0.0
+ },
+ "cases": [
+  {
+   "case_id": "P001",
+   "category": "空指针",
+   "expected": "fixed",
+   "final_state": "AWAITING_REVIEW",
+   "outcome_correct": true,
+   "root_cause_top1": true,
+   "root_cause_top3": true,
+   "root_cause_graded": true,
+   "keyword_hits": 1.0,
+   "reproduced": true,
+   "verified": true,
+   "hidden_passed": true,
+   "false_fix": false,
+   "needs_human": false,
+   "duration_s": 359.813774,
+   "tokens": 896426,
+   "cost": 0.0,
+   "incident_id": "01M6JCF3QJ29KN972W3M1FK4Y3",
+   "error": null,
+   "notes": [],
+   "fix_success": true
+  }
+ ]
+}

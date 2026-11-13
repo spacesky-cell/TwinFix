@@ -1,0 +1,47 @@
+filebeat.inputs:
+  - type: filestream
+    id: docker-containers
+    paths: [/var/lib/docker/containers/*/*.log]
+    parsers:
+      - container: ~
+      # 堆栈（"\tat ..."、"Caused by: ..."）并入上一条以时间戳开头的日志
+      - multiline:
+          type: pattern
+          pattern: '^\d{4}-\d{2}-\d{2}T'
+          negate: true
+          match: after
+    processors:
+      - add_docker_metadata: ~
+      # 只要孪生环境的业务服务
+      - drop_event:
+          when:
+            not:
+              or:
+                - equals: { container.labels.com_docker_compose_service: order }
+                - equals: { container.labels.com_docker_compose_service: inventory }
+      - copy_fields:
+          fields:
+            - { from: container.labels.com_docker_compose_service, to: service.name }
+          fail_on_error: false
+          ignore_missing: true
+      # Spring 日志格式："<ts> <LEVEL> [<traceId>] <logger> - <msg>"（见 application.yml logging.pattern）
+      - dissect:
+          tokenizer: "%{event.created} %{log.level} [%{trace.id}] %{log.logger} - %{body}"
+          field: message
+          target_prefix: ""
+          trim_values: all
+          ignore_failure: true
+      - drop_fields:
+          fields: [message]
+          ignore_missing: true
+      - rename:
+          fields: [{ from: body, to: message }]
+          ignore_missing: true
+          fail_on_error: false
+
+setup.ilm.enabled: false
+setup.template.name: logs
+setup.template.pattern: "logs-*"
+output.elasticsearch:
+  hosts: ["elasticsearch:9200"]
+  index: "logs-%{+yyyy.MM.dd}"

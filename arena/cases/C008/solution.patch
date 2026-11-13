@@ -1,0 +1,18 @@
+diff --git a/order/src/main/java/com/acme/order/service/OrderService.java b/order/src/main/java/com/acme/order/service/OrderService.java
+index 52bd9e4..2905185 100644
+--- a/order/src/main/java/com/acme/order/service/OrderService.java
++++ b/order/src/main/java/com/acme/order/service/OrderService.java
+@@ -91,11 +91,8 @@ public class OrderService {
+ 
+     /** 客户的历史订单（"我的订单"页）。 */
+     public List<Order> listForCustomer(String customer) {
+-        List<Order> result = new ArrayList<>();
+-        for (Long id : orders.findIdsByCustomer(customer)) {
+-            result.add(get(id));
+-        }
+-        return result;
++        // 批量加载：逐个 get(id) 是 N+1，每个订单两条 SQL
++        return orders.findAllById(orders.findIdsByCustomer(customer));
+     }
+ 
+     /** 支付回调：置为 PAID。经 self 调用保证事务注解在代理上生效。 */

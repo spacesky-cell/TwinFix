@@ -1,0 +1,17 @@
+diff --git a/orders/pricing.go b/orders/pricing.go
+index 8048826..e292f40 100644
+--- a/orders/pricing.go
++++ b/orders/pricing.go
+@@ -16,8 +16,11 @@ func (c PriceCalculator) Calculate(lines []OrderLine, coupon *Coupon) PriceBreak
+ }
+ 
+ func (c PriceCalculator) DiscountFor(subtotal Money, coupon *Coupon) Money {
++	if coupon == nil {
++		return 0
++	}
+ 	threshold := c.threshold(coupon)
+-	if coupon == nil || subtotal < threshold {
++	if subtotal < threshold {
+ 		return 0
+ 	}
+ 	switch coupon.Kind {

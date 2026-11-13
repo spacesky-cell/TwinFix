@@ -1,0 +1,40 @@
+id: C017
+title: 订单号工具共享静态 SimpleDateFormat，并发下日期错乱
+category: 线程安全
+description: >
+  新增"按订单号查询"（SO<yyyyMMdd>-<id>），OrderNo 把 SimpleDateFormat 做成了 static 常量
+  复用。SimpleDateFormat 内部有可变的 Calendar，多个请求线程同时 format/parse 时
+  会互相覆盖：偶发解析出错误日期导致"订单不存在"，或直接抛 NumberFormatException 变成 500。
+  单测全是单线程，CI 是绿的；低峰期也很难复现。
+inject:
+  type: patch
+  file: inject.patch
+  branch: dev
+  message: "feat(order): human-readable order no and lookup by no"
+  services: [order]
+signal:
+  title: "GET /api/orders/by-no/{no} 高峰期偶发 500 / 404"
+  service: order
+  env: test
+  severity: S2
+  stacktrace: |
+    java.lang.NumberFormatException: multiple points
+        at java.base/jdk.internal.math.FloatingDecimal.readJavaFormatString(FloatingDecimal.java:1890)
+        at java.base/java.lang.Double.parseDouble(Double.java:651)
+        at java.base/java.text.DigitList.getDouble(DigitList.java:169)
+        at java.base/java.text.DecimalFormat.parse(DecimalFormat.java:2202)
+        at java.base/java.text.SimpleDateFormat.subParse(SimpleDateFormat.java:1937)
+        at java.base/java.text.SimpleDateFormat.parse(SimpleDateFormat.java:1545)
+        at java.base/java.text.DateFormat.parse(DateFormat.java:397)
+        at com.acme.order.domain.OrderNo.dayOf(OrderNo.java:37)
+        at com.acme.order.domain.OrderNo.idOf(OrderNo.java:44)
+        at com.acme.order.service.OrderService.getByNo(OrderService.java:76)
+  message: |
+    客服系统并发查询订单号时，约 0.5% 请求 500（上面的栈），另有约 1% 返回 ORDER_NOT_FOUND，
+    但同一个订单号单独重试一次就能查到。只在 QPS > 50 时出现。
+expect:
+  outcome: fixed
+  root_cause_locations: ["order/src/main/java/com/acme/order/domain/OrderNo.java#dayOf"]
+  root_cause_keywords: ["SimpleDateFormat", "线程安全", "thread-safe", "DateTimeFormatter", "并发"]
+# 隐藏测试：多线程 format/parse 结果必须与单线程一致；订单号格式与严格日期校验不变（防止放宽校验掩盖问题）。
+hidden_tests: [hidden/OrderNoConcurrencyHiddenTest.java]

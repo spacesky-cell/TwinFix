@@ -1,0 +1,18 @@
+diff --git a/inventory/src/main/java/com/acme/inventory/service/StockService.java b/inventory/src/main/java/com/acme/inventory/service/StockService.java
+index aba87af..f666e94 100644
+--- a/inventory/src/main/java/com/acme/inventory/service/StockService.java
++++ b/inventory/src/main/java/com/acme/inventory/service/StockService.java
+@@ -38,8 +38,11 @@ public class StockService {
+         if (fromSku.equals(toSku)) {
+             throw new IllegalArgumentException("cannot transfer to the same sku");
+         }
+-        synchronized (lockFor(fromSku)) {
+-            synchronized (lockFor(toSku)) {
++        // 固定加锁顺序（按 SKU 字典序），避免 A→B 与 B→A 并发调拨互相等待对方的锁而死锁
++        String first = fromSku.compareTo(toSku) < 0 ? fromSku : toSku;
++        String second = first.equals(fromSku) ? toSku : fromSku;
++        synchronized (lockFor(first)) {
++            synchronized (lockFor(second)) {
+                 if (!repo.tryReserve(fromSku, quantity)) {
+                     throw new OutOfStockException(fromSku, quantity, available(fromSku));
+                 }

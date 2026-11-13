@@ -1,0 +1,109 @@
+diff --git a/order/src/main/java/com/acme/order/domain/PriceCalculator.java b/order/src/main/java/com/acme/order/domain/PriceCalculator.java
+index 766aed8..d3086f7 100644
+--- a/order/src/main/java/com/acme/order/domain/PriceCalculator.java
++++ b/order/src/main/java/com/acme/order/domain/PriceCalculator.java
+@@ -26,8 +26,11 @@ public class PriceCalculator {
+     }
+ 
+     private BigDecimal discountFor(BigDecimal subtotal, Coupon coupon) {
+-        // 无券或未达门槛：不打折
+-        if (coupon == null || !coupon.appliesTo(subtotal)) {
++        // 满减券门槛按券面值的 2 倍兜底，防止运营把门槛配成 0 导致无门槛立减
++        BigDecimal threshold = coupon.type() == Coupon.Type.AMOUNT
++                ? coupon.threshold().max(coupon.value().multiply(BigDecimal.valueOf(2)))
++                : coupon.threshold();
++        if (coupon == null || subtotal.compareTo(threshold) < 0) {
+             return ZERO;
+         }
+         BigDecimal discount = switch (coupon.type()) {
+diff --git a/order/src/test/java/com/acme/order/domain/PriceCalculatorTest.java b/order/src/test/java/com/acme/order/domain/PriceCalculatorTest.java
+index 2213610..9846f6a 100644
+--- a/order/src/test/java/com/acme/order/domain/PriceCalculatorTest.java
++++ b/order/src/test/java/com/acme/order/domain/PriceCalculatorTest.java
+@@ -15,15 +15,6 @@ class PriceCalculatorTest {
+         return List.of(new OrderLine("SKU-1", 1, new BigDecimal("299.00")), new OrderLine("SKU-2", 2, new BigDecimal("89.90")));
+     }
+ 
+-    @Test
+-    void noCoupon() {
+-        PriceBreakdown p = calc.calculate(lines(), null);
+-        assertThat(p.subtotal()).isEqualByComparingTo("478.80");
+-        assertThat(p.discount()).isEqualByComparingTo("0");
+-        assertThat(p.total()).isEqualByComparingTo("478.80");
+-        assertThat(p.appliedCoupon()).isNull();
+-    }
+-
+     @Test
+     void amountCoupon() {
+         PriceBreakdown p = calc.calculate(lines(), new Coupon("SAVE20", Coupon.Type.AMOUNT, new BigDecimal("20"), new BigDecimal("100")));
+@@ -46,13 +37,6 @@ class PriceCalculatorTest {
+         assertThat(p.appliedCoupon()).isNull();
+     }
+ 
+-    @Test
+-    void discountNeverExceedsSubtotal() {
+-        List<OrderLine> small = List.of(new OrderLine("SKU-2", 1, new BigDecimal("10.00")));
+-        PriceBreakdown p = calc.calculate(small, new Coupon("BIG", Coupon.Type.AMOUNT, new BigDecimal("50"), BigDecimal.ZERO));
+-        assertThat(p.total()).isEqualByComparingTo("0");
+-    }
+-
+     @Test
+     void emptyOrderIsRejected() {
+         assertThatThrownBy(() -> calc.calculate(List.of(), null)).isInstanceOf(BizException.class);
+diff --git a/order/src/test/java/com/acme/order/service/OrderServicePayTest.java b/order/src/test/java/com/acme/order/service/OrderServicePayTest.java
+index b3448c8..58abcea 100644
+--- a/order/src/test/java/com/acme/order/service/OrderServicePayTest.java
++++ b/order/src/test/java/com/acme/order/service/OrderServicePayTest.java
+@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
+ import static org.assertj.core.api.Assertions.assertThatThrownBy;
+ 
+ import com.acme.order.domain.BizException;
++import com.acme.order.domain.Coupon;
+ import com.acme.order.domain.Order;
+ import com.acme.order.domain.PriceCalculator;
+ import com.acme.order.infra.InventoryGateway;
+@@ -60,7 +61,7 @@ class OrderServicePayTest {
+     private OrderService service() {
+         return new OrderService(
+                 sku -> Optional.of(new BigDecimal("10.00")),
+-                code -> Optional.empty(),
++                code -> Optional.of(new Coupon(code, Coupon.Type.PERCENT, BigDecimal.TEN, BigDecimal.ZERO)),
+                 new FakeInventory(), orders, new PriceCalculator(),
+                 Clock.fixed(Instant.parse("2026-01-01T00:00:00Z"), ZoneOffset.UTC), null);
+     }
+@@ -68,7 +69,7 @@ class OrderServicePayTest {
+     @Test
+     void confirmPaidMarksOrderPaid() {
+         OrderService s = service();
+-        Order o = s.create(new OrderService.CreateOrder("u", List.of(new OrderService.LineRequest("SKU-1", 1)), null));
++        Order o = s.create(new OrderService.CreateOrder("u", List.of(new OrderService.LineRequest("SKU-1", 1)), "OFF10"));
+         Order paid = s.confirmPaid(o.id());
+         assertThat(paid.status()).isEqualTo("PAID");
+         assertThat(s.get(o.id()).status()).isEqualTo("PAID");
+diff --git a/order/src/test/java/com/acme/order/service/OrderServiceTest.java b/order/src/test/java/com/acme/order/service/OrderServiceTest.java
+index ff32366..a3bd9bd 100644
+--- a/order/src/test/java/com/acme/order/service/OrderServiceTest.java
++++ b/order/src/test/java/com/acme/order/service/OrderServiceTest.java
+@@ -88,13 +88,6 @@ class OrderServiceTest {
+         assertThat(inventory.reserved).containsExactly("SKU-1x1");
+     }
+ 
+-    @Test
+-    void createsOrderWithoutCoupon() {
+-        Order o = service.create(new OrderService.CreateOrder("bob",
+-                List.of(new OrderService.LineRequest("SKU-2", 2)), null));
+-        assertThat(o.price().total()).isEqualByComparingTo("179.80");
+-    }
+-
+     @Test
+     void unknownCouponIsBizError() {
+         assertThatThrownBy(() -> service.create(new OrderService.CreateOrder("bob",
+@@ -105,7 +98,7 @@ class OrderServiceTest {
+     @Test
+     void outOfStockIsBizError() {
+         assertThatThrownBy(() -> service.create(new OrderService.CreateOrder("bob",
+-                List.of(new OrderService.LineRequest("SKU-1", 99)), null)))
++                List.of(new OrderService.LineRequest("SKU-1", 99)), "SAVE20")))
+                 .isInstanceOf(BizException.class);
+     }
+ 

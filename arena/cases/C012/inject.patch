@@ -1,0 +1,160 @@
+diff --git a/order/src/main/java/com/acme/order/config/OrderConfig.java b/order/src/main/java/com/acme/order/config/OrderConfig.java
+index 0803231..97b583b 100644
+--- a/order/src/main/java/com/acme/order/config/OrderConfig.java
++++ b/order/src/main/java/com/acme/order/config/OrderConfig.java
+@@ -1,6 +1,7 @@
+ package com.acme.order.config;
+ 
+ import com.acme.order.domain.PriceCalculator;
++import com.acme.order.infra.CachingProductRepository;
+ import com.acme.order.infra.CouponRepository;
+ import com.acme.order.infra.HttpInventoryGateway;
+ import com.acme.order.infra.InventoryGateway;
+@@ -26,7 +27,7 @@ public class OrderConfig {
+ 
+     @Bean
+     ProductRepository productRepository(JdbcClient jdbc) {
+-        return new JdbcProductRepository(jdbc);
++        return new CachingProductRepository(new JdbcProductRepository(jdbc));
+     }
+ 
+     @Bean
+diff --git a/order/src/main/java/com/acme/order/infra/CachingProductRepository.java b/order/src/main/java/com/acme/order/infra/CachingProductRepository.java
+new file mode 100644
+index 0000000..6f83b06
+--- /dev/null
++++ b/order/src/main/java/com/acme/order/infra/CachingProductRepository.java
+@@ -0,0 +1,33 @@
++package com.acme.order.infra;
++
++import java.math.BigDecimal;
++import java.util.Map;
++import java.util.Optional;
++import java.util.concurrent.ConcurrentHashMap;
++
++/** 进程内商品价格缓存：下单热路径每行都要查价，商品表变化很少。 */
++public class CachingProductRepository implements ProductRepository {
++
++    private final ProductRepository delegate;
++    private final Map<String, BigDecimal> cache = new ConcurrentHashMap<>();
++
++    public CachingProductRepository(ProductRepository delegate) {
++        this.delegate = delegate;
++    }
++
++    @Override
++    public Optional<BigDecimal> findPrice(String sku) {
++        BigDecimal cached = cache.get(sku);
++        if (cached != null) {
++            return Optional.of(cached);
++        }
++        Optional<BigDecimal> loaded = delegate.findPrice(sku);
++        loaded.ifPresent(p -> cache.put(sku, p));
++        return loaded;
++    }
++
++    @Override
++    public void updatePrice(String sku, BigDecimal price) {
++        delegate.updatePrice(sku, price);
++    }
++}
+diff --git a/order/src/main/java/com/acme/order/infra/JdbcProductRepository.java b/order/src/main/java/com/acme/order/infra/JdbcProductRepository.java
+index c1c0984..4a7a01e 100644
+--- a/order/src/main/java/com/acme/order/infra/JdbcProductRepository.java
++++ b/order/src/main/java/com/acme/order/infra/JdbcProductRepository.java
+@@ -19,4 +19,12 @@ public class JdbcProductRepository implements ProductRepository {
+                 .query(BigDecimal.class)
+                 .optional();
+     }
++
++    @Override
++    public void updatePrice(String sku, BigDecimal price) {
++        jdbc.sql("UPDATE product SET price = :price WHERE sku = :sku")
++                .param("price", price)
++                .param("sku", sku)
++                .update();
++    }
+ }
+diff --git a/order/src/main/java/com/acme/order/infra/ProductRepository.java b/order/src/main/java/com/acme/order/infra/ProductRepository.java
+index 2c0ad09..129277d 100644
+--- a/order/src/main/java/com/acme/order/infra/ProductRepository.java
++++ b/order/src/main/java/com/acme/order/infra/ProductRepository.java
+@@ -6,4 +6,9 @@ import java.util.Optional;
+ public interface ProductRepository {
+ 
+     Optional<BigDecimal> findPrice(String sku);
++
++    /** 运营改价。只读实现（例如测试替身）不支持。 */
++    default void updatePrice(String sku, BigDecimal price) {
++        throw new UnsupportedOperationException("read-only product repository");
++    }
+ }
+diff --git a/order/src/main/java/com/acme/order/web/ProductController.java b/order/src/main/java/com/acme/order/web/ProductController.java
+new file mode 100644
+index 0000000..fd7b92e
+--- /dev/null
++++ b/order/src/main/java/com/acme/order/web/ProductController.java
+@@ -0,0 +1,31 @@
++package com.acme.order.web;
++
++import com.acme.order.infra.ProductRepository;
++import java.math.BigDecimal;
++import java.util.Map;
++import org.springframework.web.bind.annotation.PathVariable;
++import org.springframework.web.bind.annotation.PutMapping;
++import org.springframework.web.bind.annotation.RequestBody;
++import org.springframework.web.bind.annotation.RequestMapping;
++import org.springframework.web.bind.annotation.RestController;
++
++@RestController
++@RequestMapping("/api/products")
++public class ProductController {
++
++    public record PriceRequest(BigDecimal price) {
++    }
++
++    private final ProductRepository products;
++
++    public ProductController(ProductRepository products) {
++        this.products = products;
++    }
++
++    /** 运营后台改价。 */
++    @PutMapping("/{sku}/price")
++    public Map<String, Object> updatePrice(@PathVariable String sku, @RequestBody PriceRequest req) {
++        products.updatePrice(sku, req.price());
++        return Map.of("sku", sku, "price", req.price());
++    }
++}
+diff --git a/order/src/test/java/com/acme/order/infra/CachingProductRepositoryTest.java b/order/src/test/java/com/acme/order/infra/CachingProductRepositoryTest.java
+new file mode 100644
+index 0000000..6ecf625
+--- /dev/null
++++ b/order/src/test/java/com/acme/order/infra/CachingProductRepositoryTest.java
+@@ -0,0 +1,26 @@
++package com.acme.order.infra;
++
++import static org.assertj.core.api.Assertions.assertThat;
++
++import java.math.BigDecimal;
++import java.util.Map;
++import java.util.Optional;
++import java.util.concurrent.atomic.AtomicInteger;
++import org.junit.jupiter.api.Test;
++
++class CachingProductRepositoryTest {
++
++    @Test
++    void secondLookupIsServedFromCache() {
++        AtomicInteger calls = new AtomicInteger();
++        Map<String, BigDecimal> prices = Map.of("SKU-1", new BigDecimal("299.00"));
++        var repo = new CachingProductRepository(sku -> {
++            calls.incrementAndGet();
++            return Optional.ofNullable(prices.get(sku));
++        });
++
++        assertThat(repo.findPrice("SKU-1")).contains(new BigDecimal("299.00"));
++        assertThat(repo.findPrice("SKU-1")).contains(new BigDecimal("299.00"));
++        assertThat(calls).hasValue(1);
++    }
++}

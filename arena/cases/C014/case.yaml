@@ -1,0 +1,32 @@
+id: C014
+title: 订单事件重复投递，库存被重复扣减
+category: MQ
+description: >
+  inventory 新增 order.created 事件消费者（OrderEventConsumer），下单后异步扣库存。
+  MQ 是至少一次投递：消费者处理超时或 ack 前连接断开时，broker 会重投同一条消息。
+  消费者虽然把 eventId 记进了 processed_event 表，但没有用它去重，先扣库存再记录（record 的返回值被忽略），
+  重投一次就多扣一次。单测只投递一次，CI 是绿的。
+inject:
+  type: patch
+  file: inject.patch
+  branch: dev
+  message: "feat(inventory): reserve stock from order.created events"
+  services: [inventory]
+signal:
+  title: "对账：SKU-1 库存比订单占用少 36 件"
+  service: inventory
+  env: test
+  severity: S2
+  message: |
+    夜间库存对账：SKU-1 期初 500，当日订单明细合计占用 212 件，stock.available 却是 252（多扣 36）。
+    同期 RabbitMQ 队列 inventory.order-created 出现 redelivered=true 的消息 18 条（consumer 超时后重投）。
+    inventory 日志中同一事件出现两次：
+      INFO  c.a.i.messaging.OrderEventConsumer - reserved SKU-1 x2 for order 3187 (event 6f1c-...-a9)
+      INFO  c.a.i.messaging.OrderEventConsumer - reserved SKU-1 x2 for order 3187 (event 6f1c-...-a9)
+    processed_event 表中该 event_id 只有一行。
+expect:
+  outcome: fixed
+  root_cause_locations: ["inventory/src/main/java/com/acme/inventory/messaging/OrderEventConsumer.java#onOrderCreated"]
+  root_cause_keywords: ["幂等", "重复", "重投", "eventId", "idempot"]
+# 隐藏测试：同一 eventId 投递多次只扣一次；不同事件各自扣减（防止"全部跳过"式修复）。
+hidden_tests: [hidden/OrderEventConsumerIdempotencyHiddenTest.java]

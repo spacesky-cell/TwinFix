@@ -1,0 +1,35 @@
+diff --git a/orders/cart.py b/orders/cart.py
+index 628191d..587cfba 100644
+--- a/orders/cart.py
++++ b/orders/cart.py
+@@ -6,9 +6,9 @@ from orders.models import OrderLine
+ 
+ 
+ class Cart:
+-    def __init__(self, customer: str, lines: list[OrderLine] | None = None) -> None:
++    def __init__(self, customer: str, lines: list[OrderLine] = []) -> None:
+         self.customer = customer
+-        self.lines = list(lines) if lines is not None else []
++        self.lines = lines
+ 
+     def add(self, line: OrderLine) -> None:
+         self.lines.append(line)
+diff --git a/orders/tests/test_cart.py b/orders/tests/test_cart.py
+index 255ffdc..526a314 100644
+--- a/orders/tests/test_cart.py
++++ b/orders/tests/test_cart.py
+@@ -10,14 +10,6 @@ def _line(sku: str = "SKU-1", quantity: int = 1, price: str = "10.00") -> OrderL
+     return OrderLine(sku, quantity, Decimal(price))
+ 
+ 
+-def test_explicit_lines_are_copied() -> None:
+-    source = [_line()]
+-    cart = Cart("u-1", source)
+-    cart.add(_line("SKU-2"))
+-    assert len(source) == 1
+-    assert len(cart.lines) == 2
+-
+-
+ def test_add_appends_to_empty_cart() -> None:
+     cart = Cart("u-1", [])
+     cart.add(_line())

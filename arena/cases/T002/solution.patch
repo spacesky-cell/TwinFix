@@ -1,0 +1,47 @@
+diff --git b/orders/service.ts a/orders/service.ts
+index 860069c..b6e0eff 100644
+--- b/orders/service.ts
++++ a/orders/service.ts
+@@ -8,7 +8,6 @@ export class OrderService {
+   private readonly calculator: PriceCalculator;
+   private readonly orders = new Map<string, Order>();
+   private seq = 0;
+-  private lastCoupon: Coupon | null = null;
+ 
+   constructor(inventory: Inventory, calculator: PriceCalculator = new PriceCalculator()) {
+     this.inventory = inventory;
+@@ -19,7 +18,6 @@ export class OrderService {
+     if (lines.length === 0) {
+       throw new Error("order needs at least one line");
+     }
+-    coupon = coupon ?? this.lastCoupon;
+     const cart = new Cart(customer);
+     try {
+       for (const line of lines) {
+@@ -41,9 +39,6 @@ export class OrderService {
+       total: breakdown.total,
+     };
+     this.orders.set(order.id, order);
+-    if (coupon !== null) {
+-      this.lastCoupon = coupon;
+-    }
+     return order;
+   }
+ 
+diff --git b/orders/tests/service.test.ts a/orders/tests/service.test.ts
+index 5819df6..1fd74fe 100644
+--- b/orders/tests/service.test.ts
++++ a/orders/tests/service.test.ts
+@@ -32,3 +32,12 @@ test("failed multi-line order releases reserved lines", () => {
+   );
+   assert.equal(inventory.available("SKU-1"), 5);
+ });
++
++test("does not leak a coupon into the next order", () => {
++  const orders = service();
++  const coupon: Coupon = { code: "SAVE20", kind: "amount", value: 2000, threshold: 10000 };
++  const first = orders.create("u-1", [line(10000)], coupon);
++  assert.equal(first.total, 8000);
++  const second = orders.create("u-2", [line(10000)], null);
++  assert.equal(second.total, 10000);
++});

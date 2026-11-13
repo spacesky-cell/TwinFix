@@ -1,0 +1,30 @@
+id: C008
+title: '"我的订单"列表逐个查询，N+1 拖慢接口'
+category: N+1
+description: >
+  新增的 GET /api/orders?customer= 在 service 层循环调用 get(id)，每个订单两条 SQL。
+  仓储里明明已经有批量的 findAllById，却没用上。老客户几百个订单时接口要好几秒，
+  数据库 QPS 被一个页面打满。功能正确，单测只校验数量，CI 是绿的。
+inject:
+  type: patch
+  file: inject.patch
+  branch: dev
+  message: "feat(order): list orders by customer"
+  services: [order]
+signal:
+  title: "GET /api/orders?customer= P99 4.8s，order 库 QPS 突增"
+  service: order
+  env: test
+  severity: S3
+  message: |
+    接口 GET /api/orders?customer={c} 的 P99 从无到 4.8s（客户 u-vip 有 380 个订单）。
+    同期 PostgreSQL 慢日志里大量重复语句：
+      SELECT sku, quantity, unit_price FROM order_line WHERE order_id = $1 ORDER BY id   (x380)
+      SELECT * FROM orders WHERE id = $1                                                  (x380)
+    单次请求约 761 条 SQL。
+expect:
+  outcome: fixed
+  root_cause_locations: ["order/src/main/java/com/acme/order/service/OrderService.java#listForCustomer"]
+  root_cause_keywords: ["N+1", "批量", "findAllById", "循环"]
+# 隐藏测试：查询次数与订单数无关（统计仓储往返），结果按 id 有序且带明细。
+hidden_tests: [hidden/OrderServiceNPlusOneHiddenTest.java]

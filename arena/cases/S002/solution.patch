@@ -1,0 +1,50 @@
+diff --git b/orders.Tests/ServiceTests.cs a/orders.Tests/ServiceTests.cs
+index aede577..9b642e7 100644
+--- b/orders.Tests/ServiceTests.cs
++++ a/orders.Tests/ServiceTests.cs
+@@ -32,4 +32,13 @@ public static class ServiceTests
+         Check.Equal(500, inventory.Available("SKU-1"));
+     }
+ 
++    public static void TestDoesNotLeakCouponIntoNextOrder()
++    {
++        var service = Service();
++        var coupon = new Coupon("SAVE20", CouponKind.Amount, 2000m, 10000m);
++        var first = service.Create("u-1", new[] { new OrderLine("SKU-1", 1, 10000m) }, coupon);
++        Check.Equal(8000m, first.Total);
++        var second = service.Create("u-2", new[] { new OrderLine("SKU-1", 1, 10000m) });
++        Check.Equal(10000m, second.Total);
++    }
+ }
+diff --git b/orders/Service.cs a/orders/Service.cs
+index a6cf4c7..f367188 100644
+--- b/orders/Service.cs
++++ a/orders/Service.cs
+@@ -6,7 +6,6 @@ public sealed class OrderService
+     private readonly PriceCalculator _calculator;
+     private readonly Dictionary<string, Order> _orders = new();
+     private int _seq;
+-    private Coupon? _lastCoupon;
+ 
+     public OrderService(Inventory inventory, PriceCalculator? calculator = null)
+     {
+@@ -21,7 +20,6 @@ public sealed class OrderService
+             throw new ArgumentException("order needs at least one line", nameof(lines));
+         }
+ 
+-        coupon = coupon ?? _lastCoupon;
+         var cart = new Cart(customer);
+         try
+         {
+@@ -45,11 +43,6 @@ public sealed class OrderService
+         _seq += 1;
+         var order = new Order($"o-{_seq}", customer, cart.Lines.ToList(), breakdown.Total);
+         _orders[order.Id] = order;
+-        if (coupon is not null)
+-        {
+-            _lastCoupon = coupon;
+-        }
+-
+         return order;
+     }
+ 

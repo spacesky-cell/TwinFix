@@ -1,0 +1,16 @@
+diff --git a/orders/cart.py b/orders/cart.py
+index 587cfba..628191d 100644
+--- a/orders/cart.py
++++ b/orders/cart.py
+@@ -6,9 +6,9 @@ from orders.models import OrderLine
+ 
+ 
+ class Cart:
+-    def __init__(self, customer: str, lines: list[OrderLine] = []) -> None:
++    def __init__(self, customer: str, lines: list[OrderLine] | None = None) -> None:
+         self.customer = customer
+-        self.lines = lines
++        self.lines = list(lines) if lines is not None else []
+ 
+     def add(self, line: OrderLine) -> None:
+         self.lines.append(line)

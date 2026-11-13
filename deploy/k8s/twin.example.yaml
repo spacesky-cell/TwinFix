@@ -1,0 +1,128 @@
+# K8s 孪生环境模板示例（twin_provider=k8s）。
+#
+# 由 KubernetesTwinProvider 按事故渲染后 `kubectl apply -n twinfix-<短id> -f`：
+#   - ${IMAGE} 必须由 project.config.twin.image 或 TWINFIX_K8S_DEFAULT_IMAGE 提供；
+#   - ${PORT_ORDER} / ${PORT_INVENTORY} 是分配好的 NodePort（30000–32767）；
+#   - ${NAMESPACE} / ${TWIN_ID} / ${INCIDENT_ID} / ${REPO} / ${SHA} / ${DATA_SNAPSHOT}
+#     以及项目配置里的标量字段 ${TWIN_<KEY>} 也可用。
+#
+# 约定：Deployment 与 Service 同名；Service 类型必须是 NodePort（worker 通过节点地址访问）；
+# 健康检查默认 /actuator/health，可用 project.config.twin.health_path 覆盖。
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order
+  labels:
+    dev.twinfix/managed-by: twinfix
+    dev.twinfix/incident: "${INCIDENT_ID}"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: order
+  template:
+    metadata:
+      labels:
+        app: order
+        dev.twinfix/managed-by: twinfix
+        dev.twinfix/incident: "${INCIDENT_ID}"
+    spec:
+      containers:
+        - name: order
+          image: "${IMAGE}"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          env:
+            - name: TWIN_ID
+              value: "${TWIN_ID}"
+            - name: TWIN_SHA
+              value: "${SHA}"
+            - name: DATA_SNAPSHOT
+              value: "${DATA_SNAPSHOT}"
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: order
+  labels:
+    dev.twinfix/managed-by: twinfix
+spec:
+  type: NodePort
+  selector:
+    app: order
+  ports:
+    - port: 8080
+      targetPort: 8080
+      nodePort: ${PORT_ORDER}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inventory
+  labels:
+    dev.twinfix/managed-by: twinfix
+    dev.twinfix/incident: "${INCIDENT_ID}"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: inventory
+  template:
+    metadata:
+      labels:
+        app: inventory
+        dev.twinfix/managed-by: twinfix
+        dev.twinfix/incident: "${INCIDENT_ID}"
+    spec:
+      containers:
+        - name: inventory
+          image: "${IMAGE}"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8081
+          env:
+            - name: TWIN_ID
+              value: "${TWIN_ID}"
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8081
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: inventory
+  labels:
+    dev.twinfix/managed-by: twinfix
+spec:
+  type: NodePort
+  selector:
+    app: inventory
+  ports:
+    - port: 8081
+      targetPort: 8081
+      nodePort: ${PORT_INVENTORY}

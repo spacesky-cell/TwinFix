@@ -1,0 +1,191 @@
+diff --git a/order/src/main/java/com/acme/order/infra/JdbcOrderRepository.java b/order/src/main/java/com/acme/order/infra/JdbcOrderRepository.java
+index 302d084..959868b 100644
+--- a/order/src/main/java/com/acme/order/infra/JdbcOrderRepository.java
++++ b/order/src/main/java/com/acme/order/infra/JdbcOrderRepository.java
+@@ -4,7 +4,10 @@ import com.acme.order.domain.Order;
+ import com.acme.order.domain.OrderLine;
+ import com.acme.order.domain.PriceBreakdown;
+ import java.sql.Timestamp;
++import java.util.ArrayList;
++import java.util.HashMap;
+ import java.util.List;
++import java.util.Map;
+ import java.util.Optional;
+ import org.springframework.jdbc.core.simple.JdbcClient;
+ import org.springframework.jdbc.support.GeneratedKeyHolder;
+@@ -57,6 +60,44 @@ public class JdbcOrderRepository implements OrderRepository {
+                 .update();
+     }
+ 
++    @Override
++    public List<Long> findIdsByCustomer(String customer) {
++        return jdbc.sql("SELECT id FROM orders WHERE customer = :c ORDER BY id")
++                .param("c", customer)
++                .query(Long.class)
++                .list();
++    }
++
++    @Override
++    public List<Order> findAllById(List<Long> ids) {
++        if (ids.isEmpty()) {
++            return List.of();
++        }
++        Map<Long, List<OrderLine>> lines = new HashMap<>();
++        jdbc.sql("SELECT order_id, sku, quantity, unit_price FROM order_line WHERE order_id IN (:ids) ORDER BY id")
++                .param("ids", ids)
++                .query((rs, n) -> {
++                    lines.computeIfAbsent(rs.getLong("order_id"), k -> new ArrayList<>())
++                            .add(new OrderLine(rs.getString("sku"), rs.getInt("quantity"), rs.getBigDecimal("unit_price")));
++                    return null;
++                })
++                .list();
++        Map<Long, Order> byId = new HashMap<>();
++        jdbc.sql("SELECT * FROM orders WHERE id IN (:ids)")
++                .param("ids", ids)
++                .query((rs, n) -> new Order(
++                        rs.getLong("id"),
++                        rs.getString("customer"),
++                        lines.getOrDefault(rs.getLong("id"), List.of()),
++                        new PriceBreakdown(rs.getBigDecimal("subtotal"), rs.getBigDecimal("discount"),
++                                rs.getBigDecimal("total"), rs.getString("coupon_code")),
++                        rs.getString("status"),
++                        rs.getTimestamp("created_at").toInstant()))
++                .list()
++                .forEach(o -> byId.put(o.id(), o));
++        return ids.stream().map(byId::get).filter(java.util.Objects::nonNull).toList();
++    }
++
+     @Override
+     public Optional<Order> findById(long id) {
+         List<OrderLine> lines = jdbc.sql("SELECT sku, quantity, unit_price FROM order_line WHERE order_id = :id ORDER BY id")
+diff --git a/order/src/main/java/com/acme/order/infra/OrderRepository.java b/order/src/main/java/com/acme/order/infra/OrderRepository.java
+index 8d48a29..a2dfd08 100644
+--- a/order/src/main/java/com/acme/order/infra/OrderRepository.java
++++ b/order/src/main/java/com/acme/order/infra/OrderRepository.java
+@@ -1,6 +1,7 @@
+ package com.acme.order.infra;
+ 
+ import com.acme.order.domain.Order;
++import java.util.List;
+ import java.util.Optional;
+ 
+ public interface OrderRepository {
+@@ -10,4 +11,10 @@ public interface OrderRepository {
+     Optional<Order> findById(long id);
+ 
+     void saveStatus(long id, String status);
++
++    /** 某客户全部订单 id，按 id 升序。 */
++    List<Long> findIdsByCustomer(String customer);
++
++    /** 批量加载订单（含明细），返回顺序与 ids 一致；两次查询完成，不随订单数增长。 */
++    List<Order> findAllById(List<Long> ids);
+ }
+diff --git a/order/src/main/java/com/acme/order/service/OrderService.java b/order/src/main/java/com/acme/order/service/OrderService.java
+index 8628afd..52bd9e4 100644
+--- a/order/src/main/java/com/acme/order/service/OrderService.java
++++ b/order/src/main/java/com/acme/order/service/OrderService.java
+@@ -89,6 +89,15 @@ public class OrderService {
+         return orders.findById(id).orElseThrow(() -> new BizException("ORDER_NOT_FOUND", "order " + id + " not found"));
+     }
+ 
++    /** 客户的历史订单（"我的订单"页）。 */
++    public List<Order> listForCustomer(String customer) {
++        List<Order> result = new ArrayList<>();
++        for (Long id : orders.findIdsByCustomer(customer)) {
++            result.add(get(id));
++        }
++        return result;
++    }
++
+     /** 支付回调：置为 PAID。经 self 调用保证事务注解在代理上生效。 */
+     public Order confirmPaid(long id) {
+         return self.markPaid(id);
+diff --git a/order/src/main/java/com/acme/order/web/OrderController.java b/order/src/main/java/com/acme/order/web/OrderController.java
+index 41553f3..1ae459a 100644
+--- a/order/src/main/java/com/acme/order/web/OrderController.java
++++ b/order/src/main/java/com/acme/order/web/OrderController.java
+@@ -2,12 +2,14 @@ package com.acme.order.web;
+ 
+ import com.acme.order.domain.Order;
+ import com.acme.order.service.OrderService;
++import java.util.List;
+ import org.springframework.http.HttpStatus;
+ import org.springframework.web.bind.annotation.GetMapping;
+ import org.springframework.web.bind.annotation.PathVariable;
+ import org.springframework.web.bind.annotation.PostMapping;
+ import org.springframework.web.bind.annotation.RequestBody;
+ import org.springframework.web.bind.annotation.RequestMapping;
++import org.springframework.web.bind.annotation.RequestParam;
+ import org.springframework.web.bind.annotation.ResponseStatus;
+ import org.springframework.web.bind.annotation.RestController;
+ 
+@@ -32,6 +34,12 @@ public class OrderController {
+         return service.get(id);
+     }
+ 
++    /** 某客户的全部订单。 */
++    @GetMapping(params = "customer")
++    public List<Order> byCustomer(@RequestParam String customer) {
++        return service.listForCustomer(customer);
++    }
++
+     /** 支付网关回调：标记订单已支付。 */
+     @PostMapping("/{id}/pay")
+     public Order pay(@PathVariable long id) {
+diff --git a/order/src/test/java/com/acme/order/service/OrderServicePayTest.java b/order/src/test/java/com/acme/order/service/OrderServicePayTest.java
+index b3448c8..8b2d480 100644
+--- a/order/src/test/java/com/acme/order/service/OrderServicePayTest.java
++++ b/order/src/test/java/com/acme/order/service/OrderServicePayTest.java
+@@ -53,6 +53,16 @@ class OrderServicePayTest {
+                 rows.put(id, new Order(o.id(), o.customer(), o.lines(), o.price(), status, o.createdAt()));
+             }
+         }
++
++        @Override
++        public List<Long> findIdsByCustomer(String customer) {
++            return rows.values().stream().filter(o -> o.customer().equals(customer)).map(Order::id).sorted().toList();
++        }
++
++        @Override
++        public List<Order> findAllById(List<Long> ids) {
++            return ids.stream().map(rows::get).filter(java.util.Objects::nonNull).toList();
++        }
+     }
+ 
+     private final MemoryOrders orders = new MemoryOrders();
+diff --git a/order/src/test/java/com/acme/order/service/OrderServiceTest.java b/order/src/test/java/com/acme/order/service/OrderServiceTest.java
+index 52ec64b..33fe3cb 100644
+--- a/order/src/test/java/com/acme/order/service/OrderServiceTest.java
++++ b/order/src/test/java/com/acme/order/service/OrderServiceTest.java
+@@ -66,6 +66,16 @@ class OrderServiceTest {
+                 rows.put(id, new Order(o.id(), o.customer(), o.lines(), o.price(), status, o.createdAt()));
+             }
+         }
++
++        @Override
++        public List<Long> findIdsByCustomer(String customer) {
++            return rows.values().stream().filter(o -> o.customer().equals(customer)).map(Order::id).sorted().toList();
++        }
++
++        @Override
++        public List<Order> findAllById(List<Long> ids) {
++            return ids.stream().map(rows::get).filter(java.util.Objects::nonNull).toList();
++        }
+     }
+ 
+     private final Map<String, BigDecimal> prices = Map.of("SKU-1", new BigDecimal("299.00"), "SKU-2", new BigDecimal("89.90"));
+@@ -95,6 +105,13 @@ class OrderServiceTest {
+         assertThat(o.price().total()).isEqualByComparingTo("179.80");
+     }
+ 
++    @Test
++    void listsCustomerOrders() {
++        service.create(new OrderService.CreateOrder("eve", List.of(new OrderService.LineRequest("SKU-2", 1)), null));
++        service.create(new OrderService.CreateOrder("eve", List.of(new OrderService.LineRequest("SKU-1", 1)), null));
++        assertThat(service.listForCustomer("eve")).hasSize(2);
++    }
++
+     @Test
+     void unknownCouponIsBizError() {
+         assertThatThrownBy(() -> service.create(new OrderService.CreateOrder("bob",

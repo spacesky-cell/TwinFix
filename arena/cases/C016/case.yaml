@@ -1,0 +1,45 @@
+id: C016
+title: 库存调拨按参数顺序加两把锁，反向调拨并发死锁
+category: 死锁
+description: >
+  inventory 新增 POST /api/stock/transfer（SKU 间调拨），为了让"扣减 + 入库"不被打断，
+  作者给每个 SKU 一把进程内锁，按 from → to 的参数顺序嵌套 synchronized。
+  A→B 与 B→A 两个调拨同时进来时各持一把、互等另一把，线程永久阻塞，
+  Tomcat 工作线程逐渐被占满。单测都是单线程，CI 是绿的。
+inject:
+  type: patch
+  file: inject.patch
+  branch: dev
+  message: "feat(inventory): stock transfer between skus"
+  services: [inventory]
+signal:
+  title: "inventory 请求全部超时，线程 dump 发现 Java-level deadlock"
+  service: inventory
+  env: test
+  severity: S1
+  message: |
+    inventory 服务 POST /api/stock/transfer 与 /reserve 请求 30s 超时，Tomcat busy 线程 200/200。
+    jstack 输出：
+      Found one Java-level deadlock:
+      "http-nio-8082-exec-17":
+        waiting to lock monitor 0x00007f3a1c00a2b8 (object 0x00000000c1f0e3a0, a java.lang.Object),
+        which is held by "http-nio-8082-exec-42"
+      "http-nio-8082-exec-42":
+        waiting to lock monitor 0x00007f3a1c00b6f8 (object 0x00000000c1f0e3b0, a java.lang.Object),
+        which is held by "http-nio-8082-exec-17"
+      Java stack information for the threads listed above:
+      "http-nio-8082-exec-17":
+        at com.acme.inventory.service.StockService.transfer(StockService.java:43)
+        - waiting to lock <0x00000000c1f0e3a0> (a java.lang.Object)
+        - locked <0x00000000c1f0e3b0> (a java.lang.Object)
+      "http-nio-8082-exec-42":
+        at com.acme.inventory.service.StockService.transfer(StockService.java:43)
+        - waiting to lock <0x00000000c1f0e3b0> (a java.lang.Object)
+        - locked <0x00000000c1f0e3a0> (a java.lang.Object)
+    死锁前的访问日志：transfer SKU-1→SKU-2 与 transfer SKU-2→SKU-1 同一秒内各有数十次。
+expect:
+  outcome: fixed
+  root_cause_locations: ["inventory/src/main/java/com/acme/inventory/service/StockService.java#transfer"]
+  root_cause_keywords: ["死锁", "加锁顺序", "deadlock", "lock order"]
+# 隐藏测试：多线程双向大量调拨必须在时限内完成，且两个 SKU 总库存守恒（防止"去掉调拨/去掉锁"式修复）。
+hidden_tests: [hidden/StockTransferDeadlockHiddenTest.java]

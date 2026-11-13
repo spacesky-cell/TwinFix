@@ -1,0 +1,37 @@
+diff --git a/order/src/main/java/com/acme/order/refund/RefundRequest.java b/order/src/main/java/com/acme/order/refund/RefundRequest.java
+index 91c79d4..5337b40 100644
+--- a/order/src/main/java/com/acme/order/refund/RefundRequest.java
++++ b/order/src/main/java/com/acme/order/refund/RefundRequest.java
+@@ -1,17 +1,16 @@
+ package com.acme.order.refund;
+ 
+-import com.fasterxml.jackson.annotation.JsonFormat;
+ import java.math.BigDecimal;
+ import java.time.LocalDate;
+ 
+ /**
+  * 售后退款申请（客服工作台提交）。
+  *
+- * @param receivedOn 客户签收日期，用于判断是否在 7 天无理由退货期内
++ * @param receivedOn 客户签收日期，用于判断是否在 7 天无理由退货期内；与其余接口一致使用 ISO-8601（yyyy-MM-dd）
+  */
+ public record RefundRequest(
+         long orderId,
+         BigDecimal amount,
+         String reason,
+-        @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy/MM/dd") LocalDate receivedOn) {
++        LocalDate receivedOn) {
+ }
+diff --git a/order/src/test/java/com/acme/order/refund/RefundRequestTest.java b/order/src/test/java/com/acme/order/refund/RefundRequestTest.java
+index dee8ad9..bd0de00 100644
+--- a/order/src/test/java/com/acme/order/refund/RefundRequestTest.java
++++ b/order/src/test/java/com/acme/order/refund/RefundRequestTest.java
+@@ -22,7 +22,7 @@ class RefundRequestTest {
+     @Test
+     void parsesRequest() throws Exception {
+         var req = json.readValue("""
+-                {"orderId": 42, "amount": 89.90, "reason": "不想要了", "receivedOn": "2026/10/15"}
++                {"orderId": 42, "amount": 89.90, "reason": "不想要了", "receivedOn": "2026-10-15"}
+                 """, RefundRequest.class);
+         assertThat(req.receivedOn()).isEqualTo(LocalDate.of(2026, 10, 15));
+         assertThat(req.amount()).isEqualByComparingTo("89.90");

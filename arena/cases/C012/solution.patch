@@ -1,0 +1,12 @@
+diff --git a/order/src/main/java/com/acme/order/infra/CachingProductRepository.java b/order/src/main/java/com/acme/order/infra/CachingProductRepository.java
+index 6f83b06..5e7d665 100644
+--- a/order/src/main/java/com/acme/order/infra/CachingProductRepository.java
++++ b/order/src/main/java/com/acme/order/infra/CachingProductRepository.java
+@@ -29,5 +29,7 @@ public class CachingProductRepository implements ProductRepository {
+     @Override
+     public void updatePrice(String sku, BigDecimal price) {
+         delegate.updatePrice(sku, price);
++        // 写库成功后失效缓存，下一次读取回源拿到新价（只放在成功之后，写失败不清缓存）
++        cache.remove(sku);
+     }
+ }

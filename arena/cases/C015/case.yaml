@@ -1,0 +1,35 @@
+id: C015
+title: 坏消息无限重投，stock.reserve 队列被毒消息卡住
+category: MQ
+description: >
+  inventory 新增 stock.reserve 队列监听（ReserveListener）。作者把所有非业务异常都当成"临时故障"返回 REQUEUE，
+  没有看投递次数。一条引用了已下架 SKU 的消息每次处理都失败，被无限重投：
+  ERROR 日志每秒几百条打满磁盘，同队列的正常消息排在后面迟迟得不到处理。单测只覆盖成功与库存不足，CI 是绿的。
+inject:
+  type: patch
+  file: inject.patch
+  branch: dev
+  message: "feat(inventory): async stock reservation listener"
+  services: [inventory]
+signal:
+  title: "stock.reserve 消息 redelivered 计数 18 万，inventory ERROR 日志 400 条/秒"
+  service: inventory
+  env: test
+  severity: S2
+  message: |
+    RabbitMQ 队列 stock.reserve：ready=1、unacked=1，但 redeliver 速率 400/s，持续 2 小时；
+    同一条消息 messageId=r-77120 的 x-delivery-count 已超过 180000。
+    inventory 服务日志（同一条消息反复出现）：
+      ERROR c.a.i.messaging.ReserveListener - reserve failed for message r-77120 (delivery 180233), requeue
+      java.util.NoSuchElementException: unknown sku SKU-OLD-17
+          at com.acme.inventory.service.StockService.lambda$available$0(StockService.java:16)
+          at com.acme.inventory.service.StockService.available(StockService.java:16)
+          at com.acme.inventory.service.StockService.reserve(StockService.java:25)
+          at com.acme.inventory.messaging.ReserveListener.handle(ReserveListener.java:21)
+    日志盘使用率 96%，其它订单的库存占用延迟 40 分钟以上。
+expect:
+  outcome: fixed
+  root_cause_locations: ["inventory/src/main/java/com/acme/inventory/messaging/ReserveListener.java#handle"]
+  root_cause_keywords: ["重投", "死信", "重试上限", "毒消息", "dead"]
+# 隐藏测试：模拟 broker 重投，持续失败的消息 10 次内进死信；瞬时失败首次不进死信、重试后成功。
+hidden_tests: [hidden/ReserveListenerPoisonHiddenTest.java]

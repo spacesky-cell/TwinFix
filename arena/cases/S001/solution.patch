@@ -1,0 +1,68 @@
+diff --git b/orders.Tests/PricingTests.cs a/orders.Tests/PricingTests.cs
+index 7663093..67123e3 100644
+--- b/orders.Tests/PricingTests.cs
++++ a/orders.Tests/PricingTests.cs
+@@ -11,6 +11,14 @@ public static class PricingTests
+         return new[] { new OrderLine("SKU-X", quantity, unitPrice) };
+     }
+ 
++    public static void TestPricesOrderWithoutCouponAtSubtotal()
++    {
++        var breakdown = Calc.Calculate(Lines(17980m));
++        Check.Equal(17980m, breakdown.Total);
++        Check.Equal(0m, breakdown.Discount);
++        Check.Null(breakdown.AppliedCoupon);
++    }
++
+     public static void TestAmountCouponAppliesAtConfiguredThreshold()
+     {
+         var coupon = new Coupon("SAVE20", CouponKind.Amount, 2000m, 10000m);
+diff --git b/orders.Tests/ServiceTests.cs a/orders.Tests/ServiceTests.cs
+index 06fa6ef..9b642e7 100644
+--- b/orders.Tests/ServiceTests.cs
++++ a/orders.Tests/ServiceTests.cs
+@@ -13,9 +13,8 @@ public static class ServiceTests
+     {
+         var inventory = new Inventory();
+         var service = new OrderService(inventory);
+-        var coupon = new Coupon("OFF10", CouponKind.Percent, 10m);
+-        var order = service.Create("u-1", new[] { new OrderLine("SKU-1", 1, 10000m) }, coupon);
+-        Check.Equal(9000m, order.Total);
++        var order = service.Create("u-1", new[] { new OrderLine("SKU-1", 1, 10000m) });
++        Check.Equal(10000m, order.Total);
+         Check.Equal(499, inventory.Available("SKU-1"));
+     }
+ 
+@@ -33,4 +32,13 @@ public static class ServiceTests
+         Check.Equal(500, inventory.Available("SKU-1"));
+     }
+ 
++    public static void TestDoesNotLeakCouponIntoNextOrder()
++    {
++        var service = Service();
++        var coupon = new Coupon("SAVE20", CouponKind.Amount, 2000m, 10000m);
++        var first = service.Create("u-1", new[] { new OrderLine("SKU-1", 1, 10000m) }, coupon);
++        Check.Equal(8000m, first.Total);
++        var second = service.Create("u-2", new[] { new OrderLine("SKU-1", 1, 10000m) });
++        Check.Equal(10000m, second.Total);
++    }
+ }
+diff --git b/orders/Pricing.cs a/orders/Pricing.cs
+index 0467be3..504bc93 100644
+--- b/orders/Pricing.cs
++++ a/orders/Pricing.cs
+@@ -20,8 +20,13 @@ public sealed class PriceCalculator : IPricing
+ 
+     public decimal DiscountFor(decimal subtotal, Coupon? coupon)
+     {
++        if (coupon is null)
++        {
++            return 0;
++        }
++
+         var threshold = ThresholdOf(coupon);
+-        if (coupon is null || subtotal < threshold)
++        if (subtotal < threshold)
+         {
+             return 0;
+         }

@@ -1,0 +1,47 @@
+{
+ "title": "TwinFix 靶场评测 2026-10-21",
+ "meta": {
+  "运行": "probe1",
+  "日期": "2026-10-21",
+  "Agent": "MiniMax-M3.1-Flash-Preview(low) probe test",
+  "用例": "C001"
+ },
+ "summary": {
+  "total": 1,
+  "outcome_accuracy": 1.0,
+  "top1": 1.0,
+  "top3": 1.0,
+  "repro_rate": 1.0,
+  "fix_rate": 1.0,
+  "false_fix_rate": 0.0,
+  "needs_human_rate": 0.0,
+  "avg_duration_s": 276.751581,
+  "avg_tokens": 206149.0,
+  "avg_cost": 0.0
+ },
+ "cases": [
+  {
+   "case_id": "C001",
+   "category": "空指针",
+   "expected": "fixed",
+   "final_state": "AWAITING_REVIEW",
+   "outcome_correct": true,
+   "root_cause_top1": true,
+   "root_cause_top3": true,
+   "root_cause_graded": true,
+   "keyword_hits": 1.0,
+   "reproduced": true,
+   "verified": true,
+   "hidden_passed": true,
+   "false_fix": false,
+   "needs_human": false,
+   "duration_s": 276.751581,
+   "tokens": 206149,
+   "cost": 0.0,
+   "incident_id": "01M5EE96GZBQY5H6N919XGWKQX",
+   "error": null,
+   "notes": [],
+   "fix_success": true
+  }
+ ]
+}

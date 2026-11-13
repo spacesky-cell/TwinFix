@@ -1,0 +1,154 @@
+diff --git a/inventory/src/main/java/com/acme/inventory/infra/JdbcStockRepository.java b/inventory/src/main/java/com/acme/inventory/infra/JdbcStockRepository.java
+index d5a7ed6..471d2df 100644
+--- a/inventory/src/main/java/com/acme/inventory/infra/JdbcStockRepository.java
++++ b/inventory/src/main/java/com/acme/inventory/infra/JdbcStockRepository.java
+@@ -1,5 +1,8 @@
+ package com.acme.inventory.infra;
+ 
++import java.util.Collection;
++import java.util.HashMap;
++import java.util.Map;
+ import java.util.OptionalInt;
+ import org.springframework.jdbc.core.simple.JdbcClient;
+ 
+@@ -37,4 +40,17 @@ public class JdbcStockRepository implements StockRepository {
+                 .update();
+         return updated == 1;
+     }
++
++    @Override
++    public Map<String, Integer> snapshot(Collection<String> skus) {
++        Map<String, Integer> out = new HashMap<>();
++        if (skus.isEmpty()) {
++            return out;
++        }
++        jdbc.sql("SELECT sku, available FROM stock WHERE sku IN (:skus)")
++                .param("skus", skus)
++                .query((rs, n) -> out.put(rs.getString("sku"), rs.getInt("available")))
++                .list();
++        return out;
++    }
+ }
+diff --git a/inventory/src/main/java/com/acme/inventory/infra/StockRepository.java b/inventory/src/main/java/com/acme/inventory/infra/StockRepository.java
+index 8cc5dee..c15a213 100644
+--- a/inventory/src/main/java/com/acme/inventory/infra/StockRepository.java
++++ b/inventory/src/main/java/com/acme/inventory/infra/StockRepository.java
+@@ -1,5 +1,7 @@
+ package com.acme.inventory.infra;
+ 
++import java.util.Collection;
++import java.util.Map;
+ import java.util.OptionalInt;
+ 
+ public interface StockRepository {
+@@ -15,4 +17,7 @@ public interface StockRepository {
+      * @return true if the stock was reserved, false if there was not enough
+      */
+     boolean tryReserve(String sku, int quantity);
++
++    /** Current availability of the given SKUs; unknown SKUs are absent from the result. */
++    Map<String, Integer> snapshot(Collection<String> skus);
+ }
+diff --git a/inventory/src/main/java/com/acme/inventory/service/StockService.java b/inventory/src/main/java/com/acme/inventory/service/StockService.java
+index 26749b6..970f858 100644
+--- a/inventory/src/main/java/com/acme/inventory/service/StockService.java
++++ b/inventory/src/main/java/com/acme/inventory/service/StockService.java
+@@ -2,7 +2,9 @@ package com.acme.inventory.service;
+ 
+ import com.acme.inventory.domain.OutOfStockException;
+ import com.acme.inventory.infra.StockRepository;
++import java.util.Map;
+ import java.util.NoSuchElementException;
++import java.util.TreeMap;
+ 
+ public class StockService {
+ 
+@@ -33,4 +35,19 @@ public class StockService {
+         }
+         repo.release(sku, quantity);
+     }
++
++    /**
++     * 盘点对账：把仓库实盘数量与系统库存比对，返回不一致的 SKU → 系统库存（系统里没有的 SKU 记为 null）。
++     */
++    public Map<String, Integer> reconcile(Map<String, Integer> counted) {
++        Map<String, Integer> system = repo.snapshot(counted.keySet());
++        Map<String, Integer> mismatched = new TreeMap<>();
++        for (Map.Entry<String, Integer> e : counted.entrySet()) {
++            Integer actual = system.get(e.getKey());
++            if (actual != e.getValue()) {
++                mismatched.put(e.getKey(), actual);
++            }
++        }
++        return mismatched;
++    }
+ }
+diff --git a/inventory/src/main/java/com/acme/inventory/web/StockController.java b/inventory/src/main/java/com/acme/inventory/web/StockController.java
+index 6526f58..550515f 100644
+--- a/inventory/src/main/java/com/acme/inventory/web/StockController.java
++++ b/inventory/src/main/java/com/acme/inventory/web/StockController.java
+@@ -49,6 +49,16 @@ public class StockController {
+         return Map.of("sku", sku, "released", req.quantity());
+     }
+ 
++    /** 盘点对账：body 为 {sku: 实盘数量}，返回不一致的 SKU 及系统库存。 */
++    @PostMapping("/reconcile")
++    public Map<String, Object> reconcile(@RequestBody Map<String, Integer> counted) {
++        Map<String, Integer> mismatched = service.reconcile(counted);
++        if (!mismatched.isEmpty()) {
++            log.warn("stock reconcile mismatched {} of {} skus: {}", mismatched.size(), counted.size(), mismatched.keySet());
++        }
++        return Map.of("checked", counted.size(), "mismatched", mismatched);
++    }
++
+     @ExceptionHandler(OutOfStockException.class)
+     ResponseEntity<Map<String, String>> outOfStock(OutOfStockException e) {
+         return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("code", "OUT_OF_STOCK", "message", e.getMessage()));
+diff --git a/inventory/src/test/java/com/acme/inventory/service/StockServiceTest.java b/inventory/src/test/java/com/acme/inventory/service/StockServiceTest.java
+index 89a9612..c090ed7 100644
+--- a/inventory/src/test/java/com/acme/inventory/service/StockServiceTest.java
++++ b/inventory/src/test/java/com/acme/inventory/service/StockServiceTest.java
+@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
+ 
+ import com.acme.inventory.domain.OutOfStockException;
+ import com.acme.inventory.infra.StockRepository;
++import java.util.Collection;
++import java.util.HashMap;
+ import java.util.Map;
+ import java.util.OptionalInt;
+ import java.util.concurrent.ConcurrentHashMap;
+@@ -36,6 +38,18 @@ class StockServiceTest {
+         public synchronized void release(String sku, int quantity) {
+             rows.merge(sku, quantity, Integer::sum);
+         }
++
++        @Override
++        public Map<String, Integer> snapshot(Collection<String> skus) {
++            Map<String, Integer> out = new HashMap<>();
++            for (String sku : skus) {
++                Integer v = rows.get(sku);
++                if (v != null) {
++                    out.put(sku, v);
++                }
++            }
++            return out;
++        }
+     }
+ 
+     private final MemoryStock repo = new MemoryStock();
+@@ -57,4 +71,15 @@ class StockServiceTest {
+     void rejectsNonPositiveQuantity() {
+         assertThatThrownBy(() -> service.reserve("SKU-1", 0)).isInstanceOf(IllegalArgumentException.class);
+     }
++
++    @Test
++    void reconcileReportsOnlyMismatches() {
++        assertThat(service.reconcile(Map.of("SKU-1", 5))).isEmpty();
++        assertThat(service.reconcile(Map.of("SKU-1", 4))).containsEntry("SKU-1", 5);
++    }
++
++    @Test
++    void reconcileReportsUnknownSku() {
++        assertThat(service.reconcile(Map.of("SKU-X", 1))).containsKey("SKU-X");
++    }
+ }
