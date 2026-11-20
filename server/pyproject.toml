@@ -11,23 +11,23 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "fastapi==0.162.2",
+    "fastapi==0.163.2",
     "uvicorn[standard]==0.54.0",
     "pydantic==2.14.3",
-    "pydantic-settings==2.16.2",
-    "sqlalchemy[asyncio]==2.1.8",
+    "pydantic-settings==2.16.3",
+    "sqlalchemy[asyncio]==2.1.9",
     "alembic==1.20.1",
-    "psycopg[binary]==3.3.8",
+    "psycopg[binary]==3.3.9",
     "psycopg-pool==3.3.3",
-    "langgraph==1.2.20",
-    "langgraph-checkpoint-postgres==3.2.0",
+    "langgraph==1.2.22",
+    "langgraph-checkpoint-postgres==3.2.1",
     "aio-pika==10.2.3",
     "redis==8.1.0",
     "httpx==0.28.1",
     "sse-starlette==3.7.0",
     "pyjwt==2.15.1",
     "cryptography==50.0.2",
-    "markdown-it-py==4.2.0",
+    "markdown-it-py==4.3.0",
     "docker==7.2.0",
     "pyyaml==6.0.3",
     "tree-sitter==0.26.1",
@@ -48,11 +48,11 @@ eval = ["pytest==9.2.0"]
 [dependency-groups]
 dev = [
     "pytest==9.2.0",
-    "pytest-asyncio==1.4.1.post1",
-    "ruff==0.17.4",
+    "pytest-asyncio==1.5.0",
+    "ruff==0.17.5",
     "mypy==2.4.1",
     "aiosmtpd==1.4.6",
-    "types-pyyaml==6.0.12.20261103",
+    "types-pyyaml==6.0.12.20261113",
 ]
 
 [project.scripts]
